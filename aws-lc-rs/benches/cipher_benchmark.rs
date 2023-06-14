@@ -34,7 +34,7 @@ macro_rules! benchmark_padded {
                         let iv: CipherContext =
                             CipherContext::Iv128(iv.as_slice().try_into().unwrap());
 
-                        let mut encrypt_key = match $mode {
+                        let encrypt_key = match $mode {
                             OperatingMode::CBC => PaddedBlockEncryptingKey::cbc_pkcs7(key),
                             _ => unreachable!(),
                         }
@@ -45,7 +45,7 @@ macro_rules! benchmark_padded {
 
                         let key = UnboundCipherKey::new($awslc, &key_bytes).unwrap();
 
-                        let mut decrypt_key = match $mode {
+                        let decrypt_key = match $mode {
                             OperatingMode::CBC => PaddedBlockDecryptingKey::cbc_pkcs7(key),
                             _ => unreachable!(),
                         }
@@ -79,7 +79,7 @@ macro_rules! benchmark_unpadded {
                         let iv: CipherContext =
                             CipherContext::Iv128(iv.as_slice().try_into().unwrap());
 
-                        let mut encrypt_key = match $mode {
+                        let encrypt_key = match $mode {
                             OperatingMode::CTR => EncryptingKey::ctr(key),
                             _ => unreachable!(),
                         }
@@ -90,7 +90,7 @@ macro_rules! benchmark_unpadded {
 
                         let key = UnboundCipherKey::new($awslc, &key_bytes).unwrap();
 
-                        let mut decrypt_key = match $mode {
+                        let decrypt_key = match $mode {
                             OperatingMode::CTR => DecryptingKey::ctr(key),
                             _ => unreachable!(),
                         }

@@ -101,7 +101,7 @@ fn aes_ctr_encrypt(key: &[u8], iv: Option<String>, plaintext: String) -> Result<
     let hex_key = hex::encode(key);
     let key = new_unbound_key(key)?;
 
-    let mut key = EncryptingKey::ctr(key).map_err(|_| "failed to initalized aes encryption")?;
+    let key = EncryptingKey::ctr(key).map_err(|_| "failed to initalized aes encryption")?;
 
     let mut ciphertext = Vec::from(plaintext);
 
@@ -139,7 +139,7 @@ fn aes_ctr_decrypt(key: &[u8], iv: String, ciphertext: String) -> Result<(), &'s
         v
     };
 
-    let mut key = DecryptingKey::ctr(key).map_err(|_| "failed to initalized aes decryption")?;
+    let key = DecryptingKey::ctr(key).map_err(|_| "failed to initalized aes decryption")?;
 
     let mut ciphertext =
         hex::decode(ciphertext).map_err(|_| "ciphertext is not valid hex encoding")?;
@@ -160,7 +160,7 @@ fn aes_cbc_encrypt(key: &[u8], iv: Option<String>, plaintext: String) -> Result<
     let hex_key = hex::encode(key);
     let key = new_unbound_key(key)?;
 
-    let mut key = PaddedBlockEncryptingKey::cbc_pkcs7(key)
+    let key = PaddedBlockEncryptingKey::cbc_pkcs7(key)
         .map_err(|_| "failed to initalized aes encryption")?;
 
     let mut ciphertext = Vec::from(plaintext);
@@ -200,7 +200,7 @@ fn aes_cbc_decrypt(key: &[u8], iv: String, ciphertext: String) -> Result<(), &'s
         v
     };
 
-    let mut key = PaddedBlockDecryptingKey::cbc_pkcs7(key)
+    let key = PaddedBlockDecryptingKey::cbc_pkcs7(key)
         .map_err(|_| "failed to initalized aes decryption")?;
 
     let mut ciphertext =

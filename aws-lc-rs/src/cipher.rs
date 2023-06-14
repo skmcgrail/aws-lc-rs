@@ -444,7 +444,7 @@ impl PaddedBlockEncryptingKey {
     /// # Errors
     /// * [`Unspecified`]: Returned if encryption fails.
     ///
-    pub fn encrypt<InOut>(&mut self, in_out: &mut InOut) -> Result<CipherContext, Unspecified>
+    pub fn encrypt<InOut>(&self, in_out: &mut InOut) -> Result<CipherContext, Unspecified>
     where
         InOut: AsMut<[u8]> + for<'a> Extend<&'a u8>,
     {
@@ -459,7 +459,7 @@ impl PaddedBlockEncryptingKey {
     /// * [`Unspecified`]: Returned if encryption fails.
     ///
     pub fn less_safe_encrypt<InOut>(
-        &mut self,
+        &self,
         in_out: &mut InOut,
         context: CipherContext,
     ) -> Result<CipherContext, Unspecified>
@@ -536,7 +536,7 @@ impl PaddedBlockDecryptingKey {
     /// * [`Unspecified`]: Returned if decryption fails.
     ///
     pub fn decrypt<'in_out>(
-        &mut self,
+        &self,
         in_out: &'in_out mut [u8],
         context: CipherContext,
     ) -> Result<&'in_out mut [u8], Unspecified> {
@@ -606,7 +606,7 @@ impl EncryptingKey {
     /// * [`Unspecified`]: Returned if cipher mode requires input to be a multiple of the block length,
     /// and `in_out.len()` is not. Otherwise returned if encryption fails.
     ///
-    pub fn encrypt(&mut self, in_out: &mut [u8]) -> Result<CipherContext, Unspecified> {
+    pub fn encrypt(&self, in_out: &mut [u8]) -> Result<CipherContext, Unspecified> {
         let context = self.key.algorithm.new_cipher_context(self.mode)?;
         self.less_safe_encrypt(in_out, context)
     }
@@ -619,7 +619,7 @@ impl EncryptingKey {
     /// and `in_out.len()` is not. Otherwise returned if encryption fails.
     ///
     pub fn less_safe_encrypt(
-        &mut self,
+        &self,
         in_out: &mut [u8],
         context: CipherContext,
     ) -> Result<CipherContext, Unspecified> {
@@ -684,7 +684,7 @@ impl DecryptingKey {
     /// and `in_out.len()` is not. Also returned if decryption fails.
     ///
     pub fn decrypt<'in_out>(
-        &mut self,
+        &self,
         in_out: &'in_out mut [u8],
         context: CipherContext,
     ) -> Result<&'in_out mut [u8], Unspecified> {
@@ -912,7 +912,7 @@ mod tests {
 
         {
             let key_bytes = &[0u8; 16];
-            let mut key = PaddedBlockEncryptingKey::cbc_pkcs7(
+            let key = PaddedBlockEncryptingKey::cbc_pkcs7(
                 UnboundCipherKey::new(&AES_128, key_bytes).unwrap(),
             )
             .unwrap();
@@ -929,7 +929,7 @@ mod tests {
 
         {
             let key_bytes = &[0u8; 16];
-            let mut key =
+            let key =
                 EncryptingKey::ctr(UnboundCipherKey::new(&AES_128, key_bytes).unwrap()).unwrap();
             assert_eq!("EncryptingKey { key: UnboundCipherKey { algorithm: Algorithm { id: Aes128, key_len: 16, block_len: 16 } }, mode: CTR }", format!("{key:?}"));
             let mut data = vec![0u8; 16];
@@ -954,7 +954,7 @@ mod tests {
         }
 
         let cipher_key = UnboundCipherKey::new(alg, key).unwrap();
-        let mut encrypting_key = EncryptingKey::new(cipher_key, mode).unwrap();
+        let encrypting_key = EncryptingKey::new(cipher_key, mode).unwrap();
 
         let mut in_out = input.clone();
         let decrypt_iv = encrypting_key.encrypt(&mut in_out).unwrap();
@@ -965,7 +965,7 @@ mod tests {
         }
 
         let cipher_key2 = UnboundCipherKey::new(alg, key).unwrap();
-        let mut decrypting_key = DecryptingKey::new(cipher_key2, mode).unwrap();
+        let decrypting_key = DecryptingKey::new(cipher_key2, mode).unwrap();
 
         let plaintext = decrypting_key.decrypt(&mut in_out, decrypt_iv).unwrap();
         assert_eq!(input.as_slice(), plaintext);
@@ -985,7 +985,7 @@ mod tests {
         }
 
         let cipher_key = UnboundCipherKey::new(alg, key).unwrap();
-        let mut encrypting_key = PaddedBlockEncryptingKey::new(cipher_key, mode, padding).unwrap();
+        let encrypting_key = PaddedBlockEncryptingKey::new(cipher_key, mode, padding).unwrap();
 
         let mut in_out = input.clone();
         let decrypt_iv = encrypting_key.encrypt(&mut in_out).unwrap();
@@ -996,7 +996,7 @@ mod tests {
         }
 
         let cipher_key2 = UnboundCipherKey::new(alg, key).unwrap();
-        let mut decrypting_key = PaddedBlockDecryptingKey::new(cipher_key2, mode, padding).unwrap();
+        let decrypting_key = PaddedBlockDecryptingKey::new(cipher_key2, mode, padding).unwrap();
 
         let plaintext = decrypting_key.decrypt(&mut in_out, decrypt_iv).unwrap();
         assert_eq!(input.as_slice(), plaintext);
@@ -1072,7 +1072,7 @@ mod tests {
 
                 let unbound_key = UnboundCipherKey::new(alg, &key).unwrap();
 
-                let mut encrypting_key =
+                let encrypting_key =
                     PaddedBlockEncryptingKey::new(unbound_key, $mode, $padding).unwrap();
 
                 let mut in_out = input.clone();
@@ -1082,7 +1082,7 @@ mod tests {
                 assert_eq!(expected_ciphertext, in_out);
 
                 let unbound_key2 = UnboundCipherKey::new(alg, &key).unwrap();
-                let mut decrypting_key =
+                let decrypting_key =
                     PaddedBlockDecryptingKey::new(unbound_key2, $mode, $padding).unwrap();
 
                 let plaintext = decrypting_key.decrypt(&mut in_out, context).unwrap();
@@ -1115,7 +1115,7 @@ mod tests {
 
                 let unbound_key = UnboundCipherKey::new(alg, &key).unwrap();
 
-                let mut encrypting_key = EncryptingKey::new(unbound_key, $mode).unwrap();
+                let encrypting_key = EncryptingKey::new(unbound_key, $mode).unwrap();
 
                 let mut in_out = input.clone();
 
@@ -1124,7 +1124,7 @@ mod tests {
                 assert_eq!(expected_ciphertext, in_out);
 
                 let unbound_key2 = UnboundCipherKey::new(alg, &key).unwrap();
-                let mut decrypting_key = DecryptingKey::new(unbound_key2, $mode).unwrap();
+                let decrypting_key = DecryptingKey::new(unbound_key2, $mode).unwrap();
 
                 let plaintext = decrypting_key.decrypt(&mut in_out, context).unwrap();
                 assert_eq!(input.as_slice(), plaintext);
