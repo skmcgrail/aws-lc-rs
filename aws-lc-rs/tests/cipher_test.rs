@@ -22,20 +22,20 @@ macro_rules! padded_cipher_kat {
 
             let unbound_key = UnboundCipherKey::new($alg, &key).unwrap();
 
-            let encrypting_key =
-                PaddedBlockEncryptingKey::[<less_safe_ $constructor>](unbound_key, context).unwrap();
+            let mut encrypting_key =
+                PaddedBlockEncryptingKey::$constructor(unbound_key).unwrap();
             assert_eq!($mode, encrypting_key.mode());
             assert_eq!($alg, encrypting_key.algorithm());
             let mut in_out = input.clone();
-            let context = encrypting_key.encrypt(&mut in_out).unwrap();
+            let context = encrypting_key.less_safe_encrypt(&mut in_out, context).unwrap();
             assert_eq!(expected_ciphertext.as_slice(), in_out.as_slice());
 
             let unbound_key2 = UnboundCipherKey::new($alg, &key).unwrap();
-            let decrypting_key =
-                PaddedBlockDecryptingKey::$constructor(unbound_key2, context).unwrap();
+            let mut decrypting_key =
+                PaddedBlockDecryptingKey::$constructor(unbound_key2).unwrap();
             assert_eq!($mode, decrypting_key.mode());
             assert_eq!($alg, decrypting_key.algorithm());
-            let plaintext = decrypting_key.decrypt(&mut in_out).unwrap();
+            let plaintext = decrypting_key.decrypt(&mut in_out, context).unwrap();
             assert_eq!(input.as_slice(), plaintext);
         }
     }};
@@ -56,20 +56,20 @@ macro_rules! cipher_kat {
 
                 let unbound_key = UnboundCipherKey::new($alg, &key).unwrap();
 
-                let encrypting_key =
-                    EncryptingKey::[<less_safe_ $constructor>](unbound_key, context).unwrap();
+                let mut encrypting_key =
+                    EncryptingKey::$constructor(unbound_key).unwrap();
                 assert_eq!($mode, encrypting_key.mode());
                 assert_eq!($alg, encrypting_key.algorithm());
                 let mut in_out = input.clone();
-                let context = encrypting_key.encrypt(in_out.as_mut_slice()).unwrap();
+                let context = encrypting_key.less_safe_encrypt(in_out.as_mut_slice(), context).unwrap();
                 assert_eq!(expected_ciphertext.as_slice(), in_out);
 
                 let unbound_key2 = UnboundCipherKey::new($alg, &key).unwrap();
-                let decrypting_key =
-                    DecryptingKey::$constructor(unbound_key2, context).unwrap();
+                let mut decrypting_key =
+                    DecryptingKey::$constructor(unbound_key2).unwrap();
                 assert_eq!($mode, decrypting_key.mode());
                 assert_eq!($alg, decrypting_key.algorithm());
-                let plaintext = decrypting_key.decrypt(&mut in_out).unwrap();
+                let plaintext = decrypting_key.decrypt(&mut in_out, context).unwrap();
                 assert_eq!(input.as_slice(), plaintext);
             }
         }
@@ -85,18 +85,18 @@ macro_rules! padded_cipher_rt {
                 let input = from_hex($plaintext).unwrap();
                 let unbound_key = UnboundCipherKey::new($alg, &key).unwrap();
 
-                let encrypting_key = PaddedBlockEncryptingKey::$constructor(unbound_key).unwrap();
+                let mut encrypting_key = PaddedBlockEncryptingKey::$constructor(unbound_key).unwrap();
                 assert_eq!($mode, encrypting_key.mode());
                 assert_eq!($alg, encrypting_key.algorithm());
                 let mut in_out = input.clone();
                 let context = encrypting_key.encrypt(&mut in_out).unwrap();
 
                 let unbound_key2 = UnboundCipherKey::new($alg, &key).unwrap();
-                let decrypting_key =
-                    PaddedBlockDecryptingKey::$constructor(unbound_key2, context).unwrap();
+                let mut decrypting_key =
+                    PaddedBlockDecryptingKey::$constructor(unbound_key2).unwrap();
                 assert_eq!($mode, decrypting_key.mode());
                 assert_eq!($alg, decrypting_key.algorithm());
-                let plaintext = decrypting_key.decrypt(&mut in_out).unwrap();
+                let plaintext = decrypting_key.decrypt(&mut in_out, context).unwrap();
                 assert_eq!(input.as_slice(), plaintext);
             }
         }
@@ -111,17 +111,17 @@ macro_rules! cipher_rt {
             let input = from_hex($plaintext).unwrap();
             let unbound_key = UnboundCipherKey::new($alg, &key).unwrap();
 
-            let encrypting_key = EncryptingKey::$constructor(unbound_key).unwrap();
+            let mut encrypting_key = EncryptingKey::$constructor(unbound_key).unwrap();
             assert_eq!($mode, encrypting_key.mode());
             assert_eq!($alg, encrypting_key.algorithm());
             let mut in_out = input.clone();
             let context = encrypting_key.encrypt(in_out.as_mut_slice()).unwrap();
 
             let unbound_key2 = UnboundCipherKey::new($alg, &key).unwrap();
-            let decrypting_key = DecryptingKey::$constructor(unbound_key2, context).unwrap();
+            let mut decrypting_key = DecryptingKey::$constructor(unbound_key2).unwrap();
             assert_eq!($mode, decrypting_key.mode());
             assert_eq!($alg, decrypting_key.algorithm());
-            let plaintext = decrypting_key.decrypt(&mut in_out).unwrap();
+            let plaintext = decrypting_key.decrypt(&mut in_out, context).unwrap();
             assert_eq!(input.as_slice(), plaintext);
         }
     };

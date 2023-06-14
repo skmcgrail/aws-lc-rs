@@ -9,9 +9,58 @@ use crate::error::Unspecified;
 use aws_lc::{AES_set_decrypt_key, AES_set_encrypt_key, AES_KEY};
 use core::ptr::copy_nonoverlapping;
 use std::mem::{size_of, transmute, MaybeUninit};
+use std::ops::Deref;
 use std::os::raw::c_uint;
-use std::ptr;
+use std::{ptr, usize};
 use zeroize::Zeroize;
+
+#[derive(Clone)]
+pub(crate) struct Bytes<const L: usize>([u8; L]);
+
+impl<const L: usize> TryFrom<&[u8]> for Bytes<L> {
+    type Error = Unspecified;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        if value.len() != L {
+            return Err(Unspecified);
+        }
+
+        let mut kb = MaybeUninit::<[u8; L]>::uninit();
+
+        unsafe { ptr::copy_nonoverlapping(value.as_ptr(), kb.as_mut_ptr().cast(), L) };
+
+        Ok(Bytes::<L>(unsafe { kb.assume_init() }))
+    }
+}
+
+impl<const L: usize> Deref for Bytes<L> {
+    type Target = [u8; L];
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<const L: usize> Drop for Bytes<L> {
+    fn drop(&mut self) {
+        self.0.zeroize();
+    }
+}
+
+#[derive(Clone)]
+pub(crate) enum RawKeyBytes {
+    Len16(Bytes<16>),
+    Len32(Bytes<32>),
+}
+
+impl<'a> From<&'a RawKeyBytes> for &'a [u8] {
+    fn from(value: &'a RawKeyBytes) -> &'a [u8] {
+        match value {
+            RawKeyBytes::Len16(v) => v.as_slice(),
+            RawKeyBytes::Len32(v) => v.as_slice(),
+        }
+    }
+}
 
 pub(crate) enum SymmetricCipherKey {
     Aes128 {
