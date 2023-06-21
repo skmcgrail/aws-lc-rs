@@ -96,7 +96,6 @@ use aws_lc::{AES_cbc_encrypt, AES_ctr128_encrypt, AES_DECRYPT, AES_ENCRYPT, AES_
 use key::SymmetricCipherKey;
 use std::fmt::Debug;
 use std::mem::MaybeUninit;
-use std::ops::Deref;
 use zeroize::Zeroize;
 
 /// The cipher block padding strategy.
@@ -186,7 +185,7 @@ pub enum OperatingMode {
 
 /// The contextual data used to encrypted or decrypt data.
 #[non_exhaustive]
-pub enum CipherContext {
+enum CipherContext {
     /// A 128-bit Initialization Vector.
     Iv128(FixedLength<IV_LEN_128_BIT>),
 }
@@ -261,12 +260,6 @@ impl From<DecryptionContext> for CipherContext {
 pub struct EncryptionContext(CipherContext);
 
 impl EncryptionContext {
-    /// Constructs a new `EncryptionContext` with the provided `CipherContext`.
-    #[must_use]
-    pub fn new(context: CipherContext) -> Self {
-        Self(context)
-    }
-
     /// Constructs a new `EncryptionContext` using a [`CipherContext::Iv128`] with the given value.
     #[must_use]
     pub fn iv128(value: FixedLength<IV_LEN_128_BIT>) -> Self {
@@ -274,10 +267,8 @@ impl EncryptionContext {
     }
 }
 
-impl Deref for EncryptionContext {
-    type Target = CipherContext;
-
-    fn deref(&self) -> &Self::Target {
+impl EncryptionContext {
+    fn cipher_context(&self) -> &CipherContext {
         &self.0
     }
 }
@@ -340,7 +331,6 @@ impl Debug for EncryptionContext {
 /// ```rust
 /// # use std::error::Error;
 /// # fn main() -> Result<(), Box<dyn Error>> {
-/// use aws_lc_rs::cipher::CipherContext;
 /// # use aws_lc_rs::cipher::{DecryptionContext, EncryptingKey, UnboundCipherKey, AES_128};
 /// # let original_message = "Hello World!".as_bytes();
 /// # let mut in_out_buffer = Vec::from(original_message);
@@ -361,12 +351,6 @@ impl Debug for EncryptionContext {
 pub struct DecryptionContext(CipherContext);
 
 impl DecryptionContext {
-    /// Constructs a new `DecryptionContext` with the provided `CipherContext`.
-    #[must_use]
-    pub fn new(context: CipherContext) -> Self {
-        Self(context)
-    }
-
     /// Constructs a new `DecryptionContext` using a [`CipherContext::Iv128`] with the given value.
     #[must_use]
     pub fn iv128(iv: FixedLength<IV_LEN_128_BIT>) -> Self {
@@ -374,10 +358,8 @@ impl DecryptionContext {
     }
 }
 
-impl Deref for DecryptionContext {
-    type Target = CipherContext;
-
-    fn deref(&self) -> &Self::Target {
+impl DecryptionContext {
+    fn cipher_context(&self) -> &CipherContext {
         &self.0
     }
 }
@@ -586,7 +568,7 @@ impl PaddedBlockEncryptingKey {
         if !self
             .key
             .algorithm()
-            .is_valid_cipher_context(self.mode, &context)
+            .is_valid_cipher_context(self.mode, context.cipher_context())
         {
             return Err(Unspecified);
         }
@@ -658,7 +640,7 @@ impl PaddedBlockDecryptingKey {
         if !self
             .key
             .algorithm()
-            .is_valid_cipher_context(self.mode, &context)
+            .is_valid_cipher_context(self.mode, context.cipher_context())
         {
             return Err(Unspecified);
         }
@@ -738,7 +720,7 @@ impl EncryptingKey {
         if !self
             .key
             .algorithm()
-            .is_valid_cipher_context(self.mode, &context)
+            .is_valid_cipher_context(self.mode, context.cipher_context())
         {
             return Err(Unspecified);
         }
@@ -1173,7 +1155,7 @@ mod tests {
                     iv
                 };
 
-                let dc = CipherContext::Iv128(FixedLength::from(iv));
+                let ec = EncryptionContext::iv128(FixedLength::from(iv));
 
                 let alg = $alg;
 
@@ -1184,9 +1166,7 @@ mod tests {
 
                 let mut in_out = input.clone();
 
-                let context = encrypting_key
-                    .less_safe_encrypt(&mut in_out, EncryptionContext::new(dc))
-                    .unwrap();
+                let context = encrypting_key.less_safe_encrypt(&mut in_out, ec).unwrap();
 
                 assert_eq!(expected_ciphertext, in_out);
 
@@ -1218,7 +1198,7 @@ mod tests {
                     iv
                 };
 
-                let dc = CipherContext::Iv128(FixedLength::from(iv));
+                let ec = EncryptionContext::iv128(FixedLength::from(iv));
 
                 let alg = $alg;
 
@@ -1228,9 +1208,7 @@ mod tests {
 
                 let mut in_out = input.clone();
 
-                let context = encrypting_key
-                    .less_safe_encrypt(&mut in_out, EncryptionContext::new(dc))
-                    .unwrap();
+                let context = encrypting_key.less_safe_encrypt(&mut in_out, ec).unwrap();
 
                 assert_eq!(expected_ciphertext, in_out);
 

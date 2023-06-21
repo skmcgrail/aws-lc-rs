@@ -30,8 +30,8 @@ use aws_lc_rs::cipher::{
 };
 use aws_lc_rs::{
     cipher::{
-        CipherContext, DecryptingKey, EncryptingKey, PaddedBlockDecryptingKey,
-        PaddedBlockEncryptingKey, UnboundCipherKey, AES_128, AES_256,
+        DecryptingKey, EncryptingKey, PaddedBlockDecryptingKey, PaddedBlockEncryptingKey,
+        UnboundCipherKey, AES_128, AES_256,
     },
     iv::FixedLength,
 };
@@ -211,10 +211,7 @@ fn aes_cbc_decrypt(key: &[u8], iv: String, ciphertext: String) -> Result<(), &'s
         hex::decode(ciphertext).map_err(|_| "ciphertext is not valid hex encoding")?;
 
     let plaintext = key
-        .decrypt(
-            ciphertext.as_mut(),
-            DecryptionContext::new(CipherContext::Iv128(iv)),
-        )
+        .decrypt(ciphertext.as_mut(), DecryptionContext::iv128(iv))
         .map_err(|_| "failed to decrypt ciphertext")?;
 
     let plaintext =
