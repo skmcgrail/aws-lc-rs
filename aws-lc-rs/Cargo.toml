@@ -36,6 +36,7 @@ non-fips = ["aws-lc-sys"]
 
 # require FIPS
 fips = ["dep:aws-lc-fips-sys"]
+strict-fips = ["fips"]
 
 [dependencies]
 untrusted = { version = "0.7.1", optional = true }

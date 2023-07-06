@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR ISC
 
 use crate::error::{KeyRejected, Unspecified};
+use crate::fips::indicator_check;
 use crate::pkcs8::{Document, Version};
 use crate::ptr::LcPtr;
 use crate::rand::SecureRandom;
@@ -58,17 +59,17 @@ impl VerificationAlgorithm for EdDSAParameters {
         msg: &[u8],
         signature: &[u8],
     ) -> Result<(), Unspecified> {
-        unsafe {
-            if 1 != ED25519_verify(
+        if 1 != indicator_check!(unsafe {
+            ED25519_verify(
                 msg.as_ptr(),
                 msg.len(),
                 signature.as_ptr(),
                 public_key.as_ptr(),
-            ) {
-                return Err(Unspecified);
-            }
-            Ok(())
+            )
+        })? {
+            return Err(Unspecified);
         }
+        Ok(())
     }
 }
 
@@ -295,23 +296,24 @@ impl Ed25519KeyPair {
 
     #[inline]
     fn try_sign(&self, msg: &[u8]) -> Result<Signature, Unspecified> {
-        unsafe {
-            let mut sig_bytes = MaybeUninit::<[u8; ED25519_SIGNATURE_LEN]>::uninit();
-            if 1 != ED25519_sign(
+        let mut sig_bytes = MaybeUninit::<[u8; ED25519_SIGNATURE_LEN]>::uninit();
+        if 1 != indicator_check!(unsafe {
+            ED25519_sign(
                 sig_bytes.as_mut_ptr().cast(),
                 msg.as_ptr(),
                 msg.len(),
                 self.private_key.as_ptr(),
-            ) {
-                return Err(Unspecified);
-            }
-            let sig_bytes = sig_bytes.assume_init();
-
-            Ok(Signature::new(|slice| {
-                slice[0..ED25519_SIGNATURE_LEN].copy_from_slice(&sig_bytes);
-                ED25519_SIGNATURE_LEN
-            }))
+            )
+        })? {
+            return Err(Unspecified);
         }
+
+        let sig_bytes = unsafe { sig_bytes.assume_init() };
+
+        Ok(Signature::new(|slice| {
+            slice[0..ED25519_SIGNATURE_LEN].copy_from_slice(&sig_bytes);
+            ED25519_SIGNATURE_LEN
+        }))
     }
 }
 

@@ -124,9 +124,13 @@ mod ec;
 mod ed25519;
 mod endian;
 mod evp_pkey;
+mod fips;
 pub mod iv;
 mod ptr;
 mod rsa;
+
+#[cfg(feature = "fips")]
+pub use crate::fips::service_status as fips_service_status;
 
 pub(crate) use debug::derive_debug_via_id;
 
