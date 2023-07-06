@@ -6,6 +6,7 @@ use crate::cipher::chacha;
 
 use crate::cipher::aes::{AES_128_KEY_LEN, AES_256_KEY_LEN};
 use crate::error::Unspecified;
+use crate::fips::{indicator_check, ServiceIndicator};
 use aws_lc::{
     EVP_AEAD_CTX_cleanup, EVP_AEAD_CTX_init, EVP_AEAD_CTX_zero, EVP_aead_aes_128_gcm,
     EVP_aead_aes_256_gcm, EVP_aead_chacha20_poly1305, EVP_AEAD_CTX,
@@ -66,17 +67,19 @@ impl AeadCtx {
         unsafe {
             let aead = aead_fn();
 
-            if 1 != EVP_AEAD_CTX_init(
+            let result = indicator_check!(EVP_AEAD_CTX_init(
                 aead_ctx.as_mut_ptr(),
                 aead,
                 key_bytes.as_ptr().cast(),
                 key_bytes.len(),
                 TAG_LEN,
                 null_mut(),
-            ) {
-                return Err(Unspecified);
+            ));
+
+            match result {
+                ServiceIndicator::Approved(_result @ 1) => Ok(aead_ctx.assume_init()),
+                _ => Err(Unspecified),
             }
-            Ok(aead_ctx.assume_init())
         }
     }
 }

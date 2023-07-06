@@ -62,7 +62,11 @@
 //! assert_eq!(plaintext, decrypted_plaintext);
 //! ```
 
-use crate::{derive_debug_via_id, hkdf};
+use crate::{
+    derive_debug_via_id,
+    fips::{indicator_check, ServiceIndicator},
+    hkdf,
+};
 use aes_gcm::aead_seal_separate;
 use std::fmt::Debug;
 
@@ -763,7 +767,7 @@ where
         let mut_in_out = in_out.as_mut();
         let add_str = aad.0;
 
-        if 1 != EVP_AEAD_CTX_seal(
+        let result = indicator_check!(EVP_AEAD_CTX_seal(
             aead_ctx,
             mut_in_out.as_mut_ptr(),
             out_len.as_mut_ptr(),
@@ -774,11 +778,12 @@ where
             plaintext_len,
             add_str.as_ptr(),
             add_str.len(),
-        ) {
-            return Err(Unspecified);
-        }
+        ));
 
-        Ok(())
+        match result {
+            ServiceIndicator::Approved(_result @ 1) => Ok(()),
+            _ => Err(Unspecified),
+        }
     }
 }
 
@@ -802,7 +807,8 @@ pub(crate) fn aead_open_combined(
 
         let aad_str = aad.0;
         let mut out_len = MaybeUninit::<usize>::uninit();
-        if 1 != EVP_AEAD_CTX_open(
+
+        let result = indicator_check!(EVP_AEAD_CTX_open(
             aead_ctx,
             in_out.as_mut_ptr(),
             out_len.as_mut_ptr(),
@@ -813,11 +819,12 @@ pub(crate) fn aead_open_combined(
             plaintext_len + TAG_LEN,
             aad_str.as_ptr(),
             aad_str.len(),
-        ) {
-            return Err(Unspecified);
-        }
+        ));
 
-        Ok(())
+        match result {
+            ServiceIndicator::Approved(_result @ 1) => Ok(()),
+            _ => Err(Unspecified),
+        }
     }
 }
 

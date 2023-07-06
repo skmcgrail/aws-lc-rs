@@ -53,15 +53,16 @@ use crate::ec::{
     ec_group_from_nid, ec_key_from_public_point, ec_key_generate, ec_point_from_bytes,
 };
 use crate::error::Unspecified;
+use crate::fips::{indicator_check, ServiceIndicator};
 #[cfg(test)]
 use crate::ptr::DetachableLcPtr;
 use crate::ptr::{ConstPointer, LcPtr};
 use crate::rand::SecureRandom;
 use crate::{ec, test};
 use aws_lc::{
-    ECDH_compute_key, EC_GROUP_cmp, EC_GROUP_get_curve_name, EC_GROUP_get_degree,
-    EC_KEY_get0_group, EC_KEY_get0_public_key, NID_X9_62_prime256v1, NID_secp384r1, NID_secp521r1,
-    X25519_keypair, X25519_public_from_private, EC_KEY, NID_X25519,
+    ECDH_compute_key, ECDH_compute_key_fips, EC_GROUP_cmp, EC_GROUP_get_curve_name,
+    EC_GROUP_get_degree, EC_KEY_get0_group, EC_KEY_get0_public_key, NID_X9_62_prime256v1,
+    NID_secp384r1, NID_secp521r1, X25519_keypair, X25519_public_from_private, EC_KEY, NID_X25519,
 };
 
 use core::fmt;
@@ -571,20 +572,31 @@ unsafe fn ec_key_ecdh<'a>(
     let field_size = EC_GROUP_get_degree(*priv_group) as usize;
     let max_secret_len = (field_size + 7) / 8;
 
-    let outlen = ECDH_compute_key(
+    let result = ECDH_compute_key(
         buffer.as_mut_ptr().cast(),
         max_secret_len,
         *peer_pub_key,
         *priv_ec_key,
         None,
     );
-    if 0 >= outlen {
+
+    /* TODO: aws-lc-rs agreement design doesn't align with FIPS boundary
+    #[cfg(feature = "fips")]
+    let result = indicator_check!(ECDH_compute_key_fips(
+        buffer.as_mut_ptr().cast(),
+        max_secret_len,
+        *peer_pub_key,
+        *priv_ec_key,
+    ));
+    */
+
+    if 0 >= result {
         return Err(());
     }
-    #[allow(clippy::cast_sign_loss)]
-    let outlen = outlen as usize;
 
-    Ok(&buffer[0..outlen])
+    let result: usize = result.try_into().map_err(|_| ())?;
+
+    Ok(&buffer[0..result])
 }
 
 #[inline]
@@ -594,14 +606,16 @@ unsafe fn x25519_diffie_hellman(
     peer_pub_key: &[u8; X25519_PUBLIC_VALUE_LEN],
 ) -> Result<(), ()> {
     debug_assert!(out_shared_key.len() >= X25519_SHARED_KEY_LEN);
-    if 1 != aws_lc::X25519(
+
+    let result = indicator_check!(aws_lc::X25519(
         out_shared_key.as_mut_ptr(),
         priv_key.as_ptr(),
         peer_pub_key.as_ptr(),
-    ) {
-        return Err(());
+    ));
+    match result {
+        ServiceIndicator::Approved(_result @ 1) => Ok(()),
+        _ => Err(()),
     }
-    Ok(())
 }
 
 #[cfg(test)]

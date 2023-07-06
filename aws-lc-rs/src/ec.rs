@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR ISC
 
 use crate::error::{KeyRejected, Unspecified};
+use crate::fips::{indicator_check, ServiceIndicator};
 use core::fmt;
 
 use crate::ptr::{ConstPointer, DetachableLcPtr, LcPtr};
@@ -276,14 +277,15 @@ pub(crate) unsafe fn ec_key_generate(
 ) -> Result<DetachableLcPtr<*mut EC_KEY>, Unspecified> {
     let ec_key = DetachableLcPtr::new(EC_KEY_new_by_curve_name(nid))?;
     #[cfg(not(feature = "fips"))]
-    if 1 != EC_KEY_generate_key(*ec_key) {
-        return Err(Unspecified);
-    }
+    let result = indicator_check!(EC_KEY_generate_key(*ec_key));
+
     #[cfg(feature = "fips")]
-    if 1 != EC_KEY_generate_key_fips(*ec_key) {
-        return Err(Unspecified);
+    let result = indicator_check!(EC_KEY_generate_key_fips(*ec_key));
+
+    match result {
+        ServiceIndicator::Approved(_result @ 1) => Ok(ec_key),
+        _ => Err(Unspecified),
     }
-    Ok(ec_key)
 }
 
 #[inline]

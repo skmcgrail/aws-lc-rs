@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR ISC
 
 use crate::aead::{Aad, Algorithm, AlgorithmID, Nonce, Tag, MAX_TAG_LEN};
+use crate::fips::{indicator_check, ServiceIndicator};
 use std::mem::MaybeUninit;
 
 use crate::aead::aead_ctx::AeadCtx;
@@ -18,19 +19,19 @@ pub(crate) fn aead_seal_separate(
     aad: Aad<&[u8]>,
     in_out: &mut [u8],
 ) -> Result<Tag, Unspecified> {
-    unsafe {
-        let aead_ctx = match key {
-            AeadCtx::CHACHA20_POLY1305(aead_ctx)
-            | AeadCtx::AES_128_GCM(aead_ctx)
-            | AeadCtx::AES_256_GCM(aead_ctx) => aead_ctx,
-        };
+    let aead_ctx = match key {
+        AeadCtx::CHACHA20_POLY1305(aead_ctx)
+        | AeadCtx::AES_128_GCM(aead_ctx)
+        | AeadCtx::AES_256_GCM(aead_ctx) => aead_ctx,
+    };
 
-        let aad_slice = aad.as_ref();
-        let nonce = nonce.as_ref();
-        let mut tag = MaybeUninit::<[u8; MAX_TAG_LEN]>::uninit();
-        let mut out_tag_len = MaybeUninit::<usize>::uninit();
+    let aad_slice = aad.as_ref();
+    let nonce = nonce.as_ref();
+    let mut tag = MaybeUninit::<[u8; MAX_TAG_LEN]>::uninit();
+    let mut out_tag_len = MaybeUninit::<usize>::uninit();
 
-        if 1 != EVP_AEAD_CTX_seal_scatter(
+    let result = indicator_check!(unsafe {
+        EVP_AEAD_CTX_seal_scatter(
             aead_ctx,
             in_out.as_mut_ptr(),
             tag.as_mut_ptr().cast(),
@@ -44,10 +45,12 @@ pub(crate) fn aead_seal_separate(
             0usize,
             aad_slice.as_ptr(),
             aad_slice.len(),
-        ) {
-            return Err(Unspecified);
-        }
-        Ok(Tag(tag.assume_init()))
+        )
+    });
+
+    match result {
+        ServiceIndicator::Approved(_result @ 1) => Ok(Tag(unsafe { tag.assume_init() })),
+        _ => Err(Unspecified),
     }
 }
 
