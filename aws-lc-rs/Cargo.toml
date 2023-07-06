@@ -38,6 +38,11 @@ non-fips = ["aws-lc-sys"]
 # require FIPS
 fips = ["dep:aws-lc-fips-sys"]
 
+fips-status = ["fips"]
+
+# Only approved algorithms
+strict-fips = ["fips"]
+
 [dependencies]
 untrusted = { version = "0.7.1", optional = true }
 aws-lc-sys = { version = "0.8.0", path = "../aws-lc-sys", optional = true }

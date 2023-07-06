@@ -149,6 +149,10 @@ mod evp_pkey;
 pub mod iv;
 mod ptr;
 mod rsa;
+mod fips;
+
+#[cfg(any(feature = "strict-fips", feature = "fips-status"))]
+pub use crate::fips::fips_health_status;
 
 use aws_lc::{
     CRYPTO_library_init, ERR_error_string, ERR_get_error, FIPS_mode, ERR_GET_FUNC, ERR_GET_LIB,

@@ -194,6 +194,7 @@ AUTHORITY_KEYID_it
 AUTHORITY_KEYID_new
 AWSLC_non_fips_pkey_evp_asn1_methods
 AWSLC_non_fips_pkey_evp_methods
+AWS_LC_FIPS_error
 BASIC_CONSTRAINTS_free
 BASIC_CONSTRAINTS_it
 BASIC_CONSTRAINTS_new
@@ -456,7 +457,6 @@ BN_ucmp
 BN_usub
 BN_value_one
 BN_zero
-BORINGSSL_FIPS_abort
 BORINGSSL_integrity_test
 BORINGSSL_self_test
 BUF_MEM_append
