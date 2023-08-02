@@ -3423,6 +3423,7 @@ gcm_init_nohw
 gcm_init_v8
 ge_double_scalarmult_vartime
 ge_p3_tobytes
+handle_cpu_env
 i2a_ACCESS_DESCRIPTION
 i2a_ASN1_ENUMERATED
 i2a_ASN1_INTEGER

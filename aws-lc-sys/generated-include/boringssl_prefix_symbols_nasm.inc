@@ -3541,6 +3541,7 @@
 %xdefine _gcm_setiv_avx512 _ %+ BORINGSSL_PREFIX %+ _gcm_setiv_avx512
 %xdefine _ge_double_scalarmult_vartime _ %+ BORINGSSL_PREFIX %+ _ge_double_scalarmult_vartime
 %xdefine _ge_p3_tobytes _ %+ BORINGSSL_PREFIX %+ _ge_p3_tobytes
+%xdefine _handle_cpu_env _ %+ BORINGSSL_PREFIX %+ _handle_cpu_env
 %xdefine _i2a_ACCESS_DESCRIPTION _ %+ BORINGSSL_PREFIX %+ _i2a_ACCESS_DESCRIPTION
 %xdefine _i2a_ASN1_ENUMERATED _ %+ BORINGSSL_PREFIX %+ _i2a_ASN1_ENUMERATED
 %xdefine _i2a_ASN1_INTEGER _ %+ BORINGSSL_PREFIX %+ _i2a_ASN1_INTEGER
@@ -7449,6 +7450,7 @@
 %xdefine gcm_setiv_avx512 BORINGSSL_PREFIX %+ _gcm_setiv_avx512
 %xdefine ge_double_scalarmult_vartime BORINGSSL_PREFIX %+ _ge_double_scalarmult_vartime
 %xdefine ge_p3_tobytes BORINGSSL_PREFIX %+ _ge_p3_tobytes
+%xdefine handle_cpu_env BORINGSSL_PREFIX %+ _handle_cpu_env
 %xdefine i2a_ACCESS_DESCRIPTION BORINGSSL_PREFIX %+ _i2a_ACCESS_DESCRIPTION
 %xdefine i2a_ASN1_ENUMERATED BORINGSSL_PREFIX %+ _i2a_ASN1_ENUMERATED
 %xdefine i2a_ASN1_INTEGER BORINGSSL_PREFIX %+ _i2a_ASN1_INTEGER
