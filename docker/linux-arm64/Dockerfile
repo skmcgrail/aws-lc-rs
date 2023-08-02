@@ -17,8 +17,8 @@ RUN apt-get update && \
     rustup toolchain install nightly && \
     rustup default nightly && \
     rustup component add rustfmt clippy && \
+    rustup toolchain install nightly && \
     cargo +nightly install -Z sparse-registry --debug cargo-ament-build && \
-    cargo install rust-script && \
     git config --global --add safe.directory '*' && \
     go get golang.org/dl/${GO_VERSION} && \
     $HOME/go/bin/${GO_VERSION} download && \

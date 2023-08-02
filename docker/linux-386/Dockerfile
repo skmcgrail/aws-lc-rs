@@ -11,7 +11,7 @@ RUN apt-get update && \
     apt-get -y install clang cmake golang && \
     rustup update && \
     rustup component add rustfmt clippy && \
-    cargo install rust-script && \
+    rustup toolchain install nightly && \
     git config --global --add safe.directory '*' && \
     go get golang.org/dl/${GO_VERSION} && \
     $HOME/go/bin/${GO_VERSION} download && \
