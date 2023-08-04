@@ -100,7 +100,7 @@ mod tests {
                 let input = test_case.consume_bytes("Input");
                 let expected_mac = test_case.consume_bytes("MAC");
                 let key = Key::new(*key);
-                let Tag(actual_mac,_) = sign(key, &input);
+                let Tag(actual_mac, _) = sign(key, &input);
                 assert_eq!(expected_mac, actual_mac.as_ref());
 
                 Ok(())
