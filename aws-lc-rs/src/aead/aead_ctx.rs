@@ -222,20 +222,6 @@ impl AeadCtx {
         }
         Ok(unsafe { aead_ctx.assume_init() })
     }
-
-    pub(crate) fn as_ptr(&self) -> &EVP_AEAD_CTX {
-        match self {
-            AeadCtx::AES_128_GCM(ctx)
-            | AeadCtx::AES_256_GCM(ctx)
-            | AeadCtx::AES_128_GCM_RANDNONCE(ctx)
-            | AeadCtx::AES_256_GCM_RANDNONCE(ctx)
-            | AeadCtx::AES_128_GCM_TLS12(ctx)
-            | AeadCtx::AES_256_GCM_TLS12(ctx)
-            | AeadCtx::AES_128_GCM_TLS13(ctx)
-            | AeadCtx::AES_256_GCM_TLS13(ctx)
-            | AeadCtx::CHACHA20_POLY1305(ctx) => ctx,
-        }
-    }
 }
 
 impl AsMut<EVP_AEAD_CTX> for AeadCtx {

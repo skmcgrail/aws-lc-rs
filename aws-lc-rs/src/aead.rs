@@ -1122,8 +1122,6 @@ pub(crate) fn aead_seal_combined<InOut>(
 where
     InOut: AsMut<[u8]> + for<'in_out> Extend<&'in_out u8>,
 {
-    let aead_ctx = ctx.as_ptr();
-
     let plaintext_len = in_out.as_mut().len();
 
     let alg_tag_len = alg.tag_len();
@@ -1145,7 +1143,7 @@ where
 
         if 1 != unsafe {
             EVP_AEAD_CTX_seal(
-                aead_ctx,
+                ctx.as_ref(),
                 mut_in_out.as_mut_ptr(),
                 out_len.as_mut_ptr(),
                 plaintext_len + alg_tag_len,
@@ -1186,7 +1184,7 @@ where
 
         if 1 != unsafe {
             EVP_AEAD_CTX_seal_scatter(
-                key.as_ptr(),
+                key.as_ref(),
                 in_out.as_mut_ptr(),
                 tag_buffer.as_mut_ptr(),
                 out_tag_len.as_mut_ptr(),
@@ -1221,13 +1219,11 @@ where
 #[allow(clippy::needless_pass_by_value)]
 pub(crate) fn aead_seal_separate(
     alg: &'static Algorithm,
-    key: &AeadCtx,
+    ctx: &AeadCtx,
     nonce: Nonce,
     aad: Aad<&[u8]>,
     in_out: &mut [u8],
 ) -> Result<(Nonce, Tag), Unspecified> {
-    let aead_ctx = key.as_ptr();
-
     let aad_slice = aad.as_ref();
     let mut tag = [0u8; MAX_TAG_LEN];
     let mut out_tag_len = MaybeUninit::<usize>::uninit();
@@ -1238,7 +1234,7 @@ pub(crate) fn aead_seal_separate(
 
         if 1 != unsafe {
             EVP_AEAD_CTX_seal_scatter(
-                aead_ctx,
+                ctx.as_ref(),
                 in_out.as_mut_ptr(),
                 tag.as_mut_ptr(),
                 out_tag_len.as_mut_ptr(),
@@ -1263,12 +1259,10 @@ pub(crate) fn aead_seal_separate(
 #[allow(clippy::needless_pass_by_value)]
 pub(crate) fn aead_seal_separate_randnonce(
     alg: &'static Algorithm,
-    key: &AeadCtx,
+    ctx: &AeadCtx,
     aad: Aad<&[u8]>,
     in_out: &mut [u8],
 ) -> Result<(Nonce, Tag), Unspecified> {
-    let aead_ctx = key.as_ptr();
-
     let aad_slice = aad.as_ref();
     let mut tag_buffer = [0u8; MAX_TAG_NONCE_BUFFER_LEN];
 
@@ -1278,7 +1272,7 @@ pub(crate) fn aead_seal_separate_randnonce(
 
     if 1 != unsafe {
         EVP_AEAD_CTX_seal_scatter(
-            aead_ctx,
+            ctx.as_ref(),
             in_out.as_mut_ptr(),
             tag_buffer.as_mut_ptr(),
             out_tag_len.as_mut_ptr(),
@@ -1318,7 +1312,6 @@ pub(crate) fn aead_open_combined(
     aad: Aad<&[u8]>,
     in_out: &mut [u8],
 ) -> Result<(), Unspecified> {
-    let aead_ctx = ctx.as_ptr();
     let nonce = nonce.as_ref();
 
     debug_assert_eq!(nonce.len(), alg.nonce_len());
@@ -1329,7 +1322,7 @@ pub(crate) fn aead_open_combined(
     let mut out_len = MaybeUninit::<usize>::uninit();
     if 1 != unsafe {
         EVP_AEAD_CTX_open(
-            aead_ctx,
+            ctx.as_ref(),
             in_out.as_mut_ptr(),
             out_len.as_mut_ptr(),
             plaintext_len,
@@ -1356,7 +1349,6 @@ pub(crate) fn aead_open_combined_randnonce(
     aad: Aad<&[u8]>,
     in_out: &mut [u8],
 ) -> Result<(), Unspecified> {
-    let aead_ctx = ctx.as_ptr();
     let nonce = nonce.as_ref();
 
     let alg_nonce_len = alg.nonce_len();
@@ -1378,7 +1370,7 @@ pub(crate) fn aead_open_combined_randnonce(
 
     if 1 != unsafe {
         EVP_AEAD_CTX_open_gather(
-            aead_ctx,
+            ctx.as_ref(),
             in_out.as_mut_ptr(),
             null(),
             0,
