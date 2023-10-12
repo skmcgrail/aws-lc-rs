@@ -625,6 +625,7 @@ impl LessSafeKey {
     /// have been overwritten in an unspecified way.
     ///
     #[inline]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn open_separate_gather<A>(
         &self,
         nonce: Nonce,
