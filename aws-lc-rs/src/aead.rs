@@ -63,7 +63,7 @@
 //! ```
 
 use crate::{derive_debug_via_id, hkdf};
-use aes_gcm::{aead_seal_separate, aead_seal_separate_scatter};
+use aes_gcm::{aead_open_separate_gather, aead_seal_separate, aead_seal_separate_scatter};
 use std::fmt::Debug;
 
 use crate::error::Unspecified;
@@ -446,6 +446,27 @@ fn seal_in_place_separate_scatter_(
     )
 }
 
+#[inline]
+fn open_separate_gather_(
+    key: &UnboundKey,
+    nonce: Nonce,
+    aad: Aad<&[u8]>,
+    in_ciphertext: &[u8],
+    in_tag: &[u8],
+    out_plaintext: &mut [u8],
+) -> Result<(), Unspecified> {
+    check_per_nonce_max_bytes(key.algorithm, in_ciphertext.len())?;
+    let key_inner_ref = key.get_inner_key();
+    aead_open_separate_gather(
+        key_inner_ref,
+        nonce,
+        aad,
+        in_ciphertext,
+        in_tag,
+        out_plaintext,
+    )
+}
+
 /// The additionally authenticated data (AAD) for an opening or sealing
 /// operation. This data is authenticated but is **not** encrypted.
 ///
@@ -588,6 +609,41 @@ impl LessSafeKey {
         A: AsRef<[u8]>,
     {
         open_within_(&self.key, nonce, aad, in_out, ciphertext_and_tag)
+    }
+
+    /// Authenticates and decrypts (“opens”) data into another provided slice.
+    ///
+    /// `aad` is the additional authenticated data (AAD), if any.
+    ///
+    /// On input, `in_ciphertext` must be the ciphertext. The tag must be provided in
+    /// `in_tag`.
+    ///
+    /// The `out_plaintext` length must match the provided `in_ciphertext`.
+    ///
+    /// # Errors
+    /// `error::Unspecified` when ciphertext is invalid. In this case, `out_plaintext` may
+    /// have been overwritten in an unspecified way.
+    ///
+    #[inline]
+    pub fn open_separate_gather<A>(
+        &self,
+        nonce: Nonce,
+        aad: Aad<A>,
+        in_ciphertext: &[u8],
+        in_tag: &[u8],
+        out_plaintext: &mut [u8],
+    ) -> Result<(), Unspecified>
+    where
+        A: AsRef<[u8]>,
+    {
+        open_separate_gather_(
+            &self.key,
+            nonce,
+            Aad::from(aad.as_ref()),
+            in_ciphertext,
+            in_tag,
+            out_plaintext,
+        )
     }
 
     /// Deprecated. Renamed to `seal_in_place_append_tag()`.

@@ -7,7 +7,7 @@ use std::mem::MaybeUninit;
 use crate::aead::aead_ctx::AeadCtx;
 use crate::cipher::aes::{AES_128_KEY_LEN, AES_256_KEY_LEN};
 use crate::error::Unspecified;
-use aws_lc::EVP_AEAD_CTX_seal_scatter;
+use aws_lc::{EVP_AEAD_CTX_open_gather, EVP_AEAD_CTX_seal_scatter};
 use std::ptr::null;
 
 #[inline]
@@ -84,6 +84,49 @@ pub(crate) fn aead_seal_separate_scatter(
             in_out.len(),
             extra_in.as_ptr(),
             extra_in.len(),
+            aad_slice.as_ptr(),
+            aad_slice.len(),
+        ) {
+            return Err(Unspecified);
+        }
+        Ok(())
+    }
+}
+
+#[inline]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn aead_open_separate_gather(
+    key: &AeadCtx,
+    nonce: Nonce,
+    aad: Aad<&[u8]>,
+    in_ciphertext: &[u8],
+    in_tag: &[u8],
+    out_plaintext: &mut [u8],
+) -> Result<(), Unspecified> {
+    // ensure that the lengths match
+    {
+        let actual = in_ciphertext.len();
+        let expected = out_plaintext.len();
+
+        if actual != expected {
+            return Err(Unspecified);
+        }
+    }
+
+    unsafe {
+        let aead_ctx = key.as_ref();
+        let aad_slice = aad.as_ref();
+        let nonce = nonce.as_ref();
+
+        if 1 != EVP_AEAD_CTX_open_gather(
+            *aead_ctx.as_const(),
+            out_plaintext.as_mut_ptr(),
+            nonce.as_ptr(),
+            nonce.len(),
+            in_ciphertext.as_ptr(),
+            in_ciphertext.len(),
+            in_tag.as_ptr(),
+            in_tag.len(),
             aad_slice.as_ptr(),
             aad_slice.len(),
         ) {
