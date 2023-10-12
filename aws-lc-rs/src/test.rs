@@ -279,7 +279,7 @@ macro_rules! test_file {
 }
 
 /// A test input file.
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct File<'a> {
     /// The name (path) of the file.
     pub file_name: &'a str,

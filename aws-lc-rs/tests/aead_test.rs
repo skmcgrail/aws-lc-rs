@@ -62,7 +62,7 @@ fn test_aead_all(aead_alg: &'static aead::Algorithm, test_file: test::File) {
 
     for seal in &sealers {
         for open in &openers {
-            test_aead(aead_alg, seal, open, test_file.clone())
+            test_aead(aead_alg, seal, open, test_file);
         }
     }
 }
