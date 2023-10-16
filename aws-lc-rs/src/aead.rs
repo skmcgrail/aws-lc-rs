@@ -63,13 +63,10 @@
 //! ```
 
 use crate::{derive_debug_via_id, hkdf};
-use aes_gcm::{aead_open_separate_gather, aead_seal_separate, aead_seal_separate_scatter};
 use std::fmt::Debug;
 
 use crate::error::Unspecified;
 use aead_ctx::AeadCtx;
-use aws_lc::{EVP_AEAD_CTX_open, EVP_AEAD_CTX_seal};
-use std::mem::MaybeUninit;
 use std::ops::RangeFrom;
 
 mod aead_ctx;
@@ -80,11 +77,13 @@ mod nonce;
 pub mod nonce_sequence;
 mod poly1305;
 pub mod quic;
+mod unbound_key;
 
 pub use self::{
     aes_gcm::{AES_128_GCM, AES_128_GCM_SIV, AES_256_GCM, AES_256_GCM_SIV},
     chacha::CHACHA20_POLY1305,
     nonce::{Nonce, NONCE_LEN},
+    unbound_key::UnboundKey,
 };
 
 /// A sequences of unique nonces.
@@ -137,7 +136,7 @@ impl<N: NonceSequence> BoundKey<N> for OpeningKey<N> {
 
     #[inline]
     fn algorithm(&self) -> &'static Algorithm {
-        self.key.algorithm
+        self.key.algorithm()
     }
 }
 
@@ -222,6 +221,7 @@ impl<N: NonceSequence> OpeningKey<N> {
     /// overwritten in an unspecified way.
     ///
     #[inline]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn open_within<'in_out, A>(
         &mut self,
         aad: Aad<A>,
@@ -231,55 +231,13 @@ impl<N: NonceSequence> OpeningKey<N> {
     where
         A: AsRef<[u8]>,
     {
-        open_within_(
-            &self.key,
-            self.nonce_sequence.advance()?,
-            aad,
+        self.key.open_within(
+            &self.nonce_sequence.advance()?,
+            aad.as_ref(),
             in_out,
             ciphertext_and_tag,
         )
     }
-}
-
-#[inline]
-fn open_within_<'in_out, A: AsRef<[u8]>>(
-    key: &UnboundKey,
-    nonce: Nonce,
-    Aad(aad): Aad<A>,
-    in_out: &'in_out mut [u8],
-    ciphertext_and_tag: RangeFrom<usize>,
-) -> Result<&'in_out mut [u8], Unspecified> {
-    fn open_within<'in_out>(
-        key: &UnboundKey,
-        nonce: Nonce,
-        aad: Aad<&[u8]>,
-        in_out: &'in_out mut [u8],
-        ciphertext_and_tag: RangeFrom<usize>,
-    ) -> Result<&'in_out mut [u8], Unspecified> {
-        let in_prefix_len = ciphertext_and_tag.start;
-        let ciphertext_and_tag_len = in_out.len().checked_sub(in_prefix_len).ok_or(Unspecified)?;
-        let ciphertext_len = ciphertext_and_tag_len
-            .checked_sub(TAG_LEN)
-            .ok_or(Unspecified)?;
-        check_per_nonce_max_bytes(key.algorithm, ciphertext_len)?;
-        let key_inner_ref = key.get_inner_key();
-
-        aead_open_combined(key_inner_ref, nonce, aad, &mut in_out[in_prefix_len..])?;
-
-        // shift the plaintext to the left
-        in_out.copy_within(in_prefix_len..in_prefix_len + ciphertext_len, 0);
-
-        // `ciphertext_len` is also the plaintext length.
-        Ok(&mut in_out[..ciphertext_len])
-    }
-
-    open_within(
-        key,
-        nonce,
-        Aad::from(aad.as_ref()),
-        in_out,
-        ciphertext_and_tag,
-    )
 }
 
 /// An AEAD key for encrypting and signing ("sealing"), bound to a nonce
@@ -302,7 +260,7 @@ impl<N: NonceSequence> BoundKey<N> for SealingKey<N> {
 
     #[inline]
     fn algorithm(&self) -> &'static Algorithm {
-        self.key.algorithm
+        self.key.algorithm()
     }
 }
 
@@ -321,6 +279,7 @@ impl<N: NonceSequence> SealingKey<N> {
     /// See `seal_in_place_append_tag`
     #[deprecated(note = "Renamed to `seal_in_place_append_tag`.")]
     #[inline]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn seal_in_place<A, InOut>(
         &mut self,
         aad: Aad<A>,
@@ -356,12 +315,8 @@ impl<N: NonceSequence> SealingKey<N> {
         A: AsRef<[u8]>,
         InOut: AsMut<[u8]> + for<'in_out> Extend<&'in_out u8>,
     {
-        seal_in_place_append_tag_(
-            &self.key,
-            self.nonce_sequence.advance()?,
-            Aad::from(aad.as_ref()),
-            in_out,
-        )
+        self.key
+            .seal_combined(&self.nonce_sequence.advance()?, aad.as_ref(), in_out)
     }
 
     /// Encrypts and signs (“seals”) data in place.
@@ -389,82 +344,9 @@ impl<N: NonceSequence> SealingKey<N> {
     where
         A: AsRef<[u8]>,
     {
-        seal_in_place_separate_tag_(
-            &self.key,
-            self.nonce_sequence.advance()?,
-            Aad::from(aad.as_ref()),
-            in_out,
-        )
+        self.key
+            .seal_separate(&self.nonce_sequence.advance()?, aad.as_ref(), in_out)
     }
-}
-
-#[inline]
-fn seal_in_place_append_tag_<InOut>(
-    key: &UnboundKey,
-    nonce: Nonce,
-    aad: Aad<&[u8]>,
-    in_out: &mut InOut,
-) -> Result<(), Unspecified>
-where
-    InOut: AsMut<[u8]> + for<'in_out> Extend<&'in_out u8>,
-{
-    check_per_nonce_max_bytes(key.algorithm, in_out.as_mut().len())?;
-    let key_inner_ref = key.get_inner_key();
-    aead_seal_combined(key_inner_ref, nonce, aad, in_out)
-}
-
-#[inline]
-fn seal_in_place_separate_tag_(
-    key: &UnboundKey,
-    nonce: Nonce,
-    aad: Aad<&[u8]>,
-    in_out: &mut [u8],
-) -> Result<Tag, Unspecified> {
-    check_per_nonce_max_bytes(key.algorithm, in_out.len())?;
-    let key_inner_ref = key.get_inner_key();
-    aead_seal_separate(key_inner_ref, nonce, aad, in_out)
-}
-
-#[inline]
-fn seal_in_place_separate_scatter_(
-    key: &UnboundKey,
-    nonce: Nonce,
-    aad: Aad<&[u8]>,
-    in_out: &mut [u8],
-    extra_in: &[u8],
-    extra_out_and_tag: &mut [u8],
-) -> Result<(), Unspecified> {
-    check_per_nonce_max_bytes(key.algorithm, in_out.len())?;
-    let key_inner_ref = key.get_inner_key();
-    aead_seal_separate_scatter(
-        key_inner_ref,
-        nonce,
-        aad,
-        in_out,
-        extra_in,
-        extra_out_and_tag,
-    )
-}
-
-#[inline]
-fn open_separate_gather_(
-    key: &UnboundKey,
-    nonce: Nonce,
-    aad: Aad<&[u8]>,
-    in_ciphertext: &[u8],
-    in_tag: &[u8],
-    out_plaintext: &mut [u8],
-) -> Result<(), Unspecified> {
-    check_per_nonce_max_bytes(key.algorithm, in_ciphertext.len())?;
-    let key_inner_ref = key.get_inner_key();
-    aead_open_separate_gather(
-        key_inner_ref,
-        nonce,
-        aad,
-        in_ciphertext,
-        in_tag,
-        out_plaintext,
-    )
 }
 
 /// The additionally authenticated data (AAD) for an opening or sealing
@@ -496,55 +378,6 @@ impl Aad<[u8; 0]> {
     #[must_use]
     pub fn empty() -> Self {
         Self::from([])
-    }
-}
-
-/// An AEAD key without a designated role or nonce sequence.
-pub struct UnboundKey {
-    inner: AeadCtx,
-    algorithm: &'static Algorithm,
-}
-
-#[allow(clippy::missing_fields_in_debug)]
-impl Debug for UnboundKey {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> Result<(), core::fmt::Error> {
-        f.debug_struct("UnboundKey")
-            .field("algorithm", &self.algorithm)
-            .finish()
-    }
-}
-
-impl UnboundKey {
-    /// Constructs an `UnboundKey`.
-    /// # Errors
-    /// `error::Unspecified` if `key_bytes.len() != algorithm.key_len()`.
-    pub fn new(algorithm: &'static Algorithm, key_bytes: &[u8]) -> Result<Self, Unspecified> {
-        Ok(Self {
-            inner: (algorithm.init)(key_bytes)?,
-            algorithm,
-        })
-    }
-
-    #[inline]
-    fn get_inner_key(&self) -> &AeadCtx {
-        &self.inner
-    }
-
-    /// The key's AEAD algorithm.
-    #[inline]
-    #[must_use]
-    pub fn algorithm(&self) -> &'static Algorithm {
-        self.algorithm
-    }
-}
-
-impl From<hkdf::Okm<'_, &'static Algorithm>> for UnboundKey {
-    fn from(okm: hkdf::Okm<&'static Algorithm>) -> Self {
-        let mut key_bytes = [0; MAX_KEY_LEN];
-        let key_bytes = &mut key_bytes[..okm.len().key_len];
-        let algorithm = *okm.len();
-        okm.fill(key_bytes).unwrap();
-        Self::new(algorithm, key_bytes).unwrap()
     }
 }
 
@@ -598,6 +431,7 @@ impl LessSafeKey {
     /// `error::Unspecified` when ciphertext is invalid.
     ///
     #[inline]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn open_within<'in_out, A>(
         &self,
         nonce: Nonce,
@@ -608,7 +442,8 @@ impl LessSafeKey {
     where
         A: AsRef<[u8]>,
     {
-        open_within_(&self.key, nonce, aad, in_out, ciphertext_and_tag)
+        self.key
+            .open_within(&nonce, aad.as_ref(), in_out, ciphertext_and_tag)
     }
 
     /// Authenticates and decrypts (“opens”) data into another provided slice.
@@ -637,14 +472,8 @@ impl LessSafeKey {
     where
         A: AsRef<[u8]>,
     {
-        open_separate_gather_(
-            &self.key,
-            nonce,
-            Aad::from(aad.as_ref()),
-            in_ciphertext,
-            in_tag,
-            out_plaintext,
-        )
+        self.key
+            .open_separate_gather(&nonce, aad.as_ref(), in_ciphertext, in_tag, out_plaintext)
     }
 
     /// Deprecated. Renamed to `seal_in_place_append_tag()`.
@@ -684,7 +513,7 @@ impl LessSafeKey {
         A: AsRef<[u8]>,
         InOut: AsMut<[u8]> + for<'in_out> Extend<&'in_out u8>,
     {
-        seal_in_place_append_tag_(&self.key, nonce, Aad::from(aad.as_ref()), in_out)
+        self.key.seal_combined(&nonce, aad.as_ref(), in_out)
     }
 
     /// Like `SealingKey::seal_in_place_separate_tag()`, except it accepts an
@@ -706,7 +535,7 @@ impl LessSafeKey {
     where
         A: AsRef<[u8]>,
     {
-        seal_in_place_separate_tag_(&self.key, nonce, Aad::from(aad.as_ref()), in_out)
+        self.key.seal_separate(&nonce, aad.as_ref(), in_out)
     }
 
     /// Encrypts and signs (“seals”) data in place with extra plaintext.
@@ -739,21 +568,15 @@ impl LessSafeKey {
     where
         A: AsRef<[u8]>,
     {
-        seal_in_place_separate_scatter_(
-            &self.key,
-            nonce,
-            Aad::from(aad.as_ref()),
-            in_out,
-            extra_in,
-            extra_out_and_tag,
-        )
+        self.key
+            .seal_separate_scatter(&nonce, aad.as_ref(), in_out, extra_in, extra_out_and_tag)
     }
 
     /// The key's AEAD algorithm.
     #[inline]
     #[must_use]
     pub fn algorithm(&self) -> &'static Algorithm {
-        self.key.algorithm
+        self.key.algorithm()
     }
 }
 
@@ -841,97 +664,6 @@ const TAG_LEN: usize = 16;
 
 /// The maximum length of a tag for the algorithms in this module.
 pub const MAX_TAG_LEN: usize = TAG_LEN;
-
-#[inline]
-#[must_use]
-const fn u64_from_usize(x: usize) -> u64 {
-    x as u64
-}
-
-#[inline]
-fn check_per_nonce_max_bytes(alg: &Algorithm, in_out_len: usize) -> Result<(), Unspecified> {
-    if u64_from_usize(in_out_len) > alg.max_input_len {
-        return Err(Unspecified);
-    }
-    Ok(())
-}
-
-#[inline]
-#[allow(clippy::needless_pass_by_value)]
-pub(crate) fn aead_seal_combined<InOut>(
-    key: &AeadCtx,
-    nonce: Nonce,
-    aad: Aad<&[u8]>,
-    in_out: &mut InOut,
-) -> Result<(), Unspecified>
-where
-    InOut: AsMut<[u8]> + for<'in_out> Extend<&'in_out u8>,
-{
-    unsafe {
-        let aead_ctx = key.as_ref();
-        let nonce = nonce.as_ref();
-
-        let plaintext_len = in_out.as_mut().len();
-
-        in_out.extend([0u8; TAG_LEN].iter());
-
-        let mut out_len = MaybeUninit::<usize>::uninit();
-        let mut_in_out = in_out.as_mut();
-        let add_str = aad.0;
-
-        if 1 != EVP_AEAD_CTX_seal(
-            *aead_ctx.as_const(),
-            mut_in_out.as_mut_ptr(),
-            out_len.as_mut_ptr(),
-            plaintext_len + TAG_LEN,
-            nonce.as_ptr(),
-            NONCE_LEN,
-            mut_in_out.as_ptr(),
-            plaintext_len,
-            add_str.as_ptr(),
-            add_str.len(),
-        ) {
-            return Err(Unspecified);
-        }
-
-        Ok(())
-    }
-}
-
-#[inline]
-#[allow(clippy::needless_pass_by_value)]
-pub(crate) fn aead_open_combined(
-    key: &AeadCtx,
-    nonce: Nonce,
-    aad: Aad<&[u8]>,
-    in_out: &mut [u8],
-) -> Result<(), Unspecified> {
-    unsafe {
-        let aead_ctx = key.as_ref();
-        let nonce = nonce.as_ref();
-
-        let plaintext_len = in_out.len() - TAG_LEN;
-
-        let aad_str = aad.0;
-        let mut out_len = MaybeUninit::<usize>::uninit();
-        if 1 != EVP_AEAD_CTX_open(
-            *aead_ctx.as_const(),
-            in_out.as_mut_ptr(),
-            out_len.as_mut_ptr(),
-            plaintext_len,
-            nonce.as_ptr(),
-            NONCE_LEN,
-            in_out.as_ptr(),
-            plaintext_len + TAG_LEN,
-            aad_str.as_ptr(),
-            aad_str.len(),
-        ) {
-            return Err(Unspecified);
-        }
-
-        Ok(())
-    }
-}
 
 #[cfg(test)]
 mod tests {
