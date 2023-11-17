@@ -13,9 +13,11 @@ use core::{
 #[cfg(feature = "fips")]
 use aws_lc::RSA_check_fips;
 use aws_lc::{
-    EVP_DigestSignInit, EVP_PKEY_assign_RSA, EVP_PKEY_new, RSA_get0_e, RSA_get0_n, RSA_get0_p,
-    RSA_get0_q, RSA_new, RSA_parse_private_key, RSA_parse_public_key, RSA_public_key_to_bytes,
-    RSA_set0_key, RSA_size, EVP_PKEY, EVP_PKEY_CTX, RSA,
+    CBB_finish, EVP_DigestSignInit, EVP_PKEY_CTX_new_id, EVP_PKEY_CTX_set_rsa_keygen_bits,
+    EVP_PKEY_assign_RSA, EVP_PKEY_keygen, EVP_PKEY_keygen_init, EVP_PKEY_new, EVP_PKEY_size,
+    EVP_marshal_private_key, RSA_get0_e, RSA_get0_n, RSA_get0_p, RSA_get0_q, RSA_new,
+    RSA_parse_private_key, RSA_parse_public_key, RSA_public_key_to_bytes, RSA_set0_key, RSA_size,
+    EVP_PKEY, EVP_PKEY_CTX, EVP_PKEY_RSA, RSA,
 };
 
 use mirai_annotations::verify_unreachable;
@@ -33,13 +35,64 @@ use super::{
 #[cfg(feature = "ring-io")]
 use crate::io;
 use crate::{
+    cbb::LcCBB,
     cbs, digest,
     error::{KeyRejected, Unspecified},
+    fips::indicator_check,
     hex,
+    pkcs8::Document,
     ptr::{ConstPointer, DetachableLcPtr, LcPtr},
     rand,
     sealed::Sealed,
 };
+
+// Based on a meassurement of a PKCS#8 document containing an RSA-2048 key with a 5% additional buffer.
+pub(super) const PKCS8_CAPACITY_BUFFER: usize = 1252;
+
+/// RSA key-size.
+#[allow(clippy::module_name_repetitions)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum KeySize {
+    /// 2048-bit key
+    Rsa2048,
+
+    /// 4096-bit key
+    Rsa4096,
+
+    /// 8192-bit key
+    Rsa8192,
+}
+
+impl KeySize {
+    /// Returns the size of the key in bytes [`KeySize`].
+    #[inline]
+    pub fn len(self) -> usize {
+        match self {
+            KeySize::Rsa2048 => 256,
+            KeySize::Rsa4096 => 512,
+            KeySize::Rsa8192 => 1024,
+        }
+    }
+
+    /// Returns the bits of this [`KeySize`].
+    #[inline]
+    fn bit_len(self) -> i32 {
+        match self {
+            KeySize::Rsa2048 => 2048,
+            KeySize::Rsa4096 => 4096,
+            KeySize::Rsa8192 => 8192,
+        }
+    }
+
+    pub(super) fn from_evp_pkey(evp_pkey: &LcPtr<EVP_PKEY>) -> Result<Self, Unspecified> {
+        Ok(match unsafe { EVP_PKEY_size(**evp_pkey) } {
+            256 => KeySize::Rsa2048,
+            512 => KeySize::Rsa4096,
+            1024 => KeySize::Rsa8192,
+            _ => return Err(Unspecified),
+        })
+    }
+}
 
 /// An RSA key pair, used for signing.
 #[allow(clippy::module_name_repetitions)]
@@ -50,8 +103,8 @@ pub struct KeyPair {
     // other thread is concurrently calling a mutating function. Unless otherwise
     // documented, functions which take a |const| pointer are non-mutating and
     // functions which take a non-|const| pointer are mutating.
-    evp_pkey: LcPtr<EVP_PKEY>,
-    serialized_public_key: PublicKey,
+    pub(super) evp_pkey: LcPtr<EVP_PKEY>,
+    pub(super) serialized_public_key: PublicKey,
 }
 
 impl Sealed for KeyPair {}
@@ -68,6 +121,16 @@ impl KeyPair {
                 serialized_public_key,
             })
         }
+    }
+
+    /// Generate an RSA `KeyPair` of the specified key-strength.
+    ///
+    /// # Errors
+    /// * `Unspecified`
+    pub fn generate(size: KeySize) -> Result<Self, Unspecified> {
+        let private_key = generate_rsa_evp_pkey(size)?;
+
+        Self::new(private_key).map_err(|_| Unspecified)
     }
 
     /// Parses an unencrypted PKCS#8-encoded RSA private key.
@@ -120,7 +183,7 @@ impl KeyPair {
     pub fn from_pkcs8(pkcs8: &[u8]) -> Result<Self, KeyRejected> {
         unsafe {
             let evp_pkey = LcPtr::try_from(pkcs8)?;
-            Self::validate_rsa_pkey(&evp_pkey)?;
+            validate_rsa_pkey(&evp_pkey)?;
             Self::new(evp_pkey)
         }
     }
@@ -132,58 +195,34 @@ impl KeyPair {
     pub fn from_der(input: &[u8]) -> Result<Self, KeyRejected> {
         unsafe {
             let pkey = build_private_RSA_PKEY(input)?;
-            Self::validate_rsa_pkey(&pkey)?;
+            validate_rsa_pkey(&pkey)?;
             Self::new(pkey)
         }
     }
 
-    const MIN_RSA_PRIME_BITS: u32 = 1024;
-    const MAX_RSA_PRIME_BITS: u32 = 4096;
+    /// Serializes this key-pair to a PKCS#8 (v1) document.
+    ///
+    /// # Errors
+    /// * `Unspecified`: any error encountered while serializing the key.
+    pub fn to_pkcs8v1(&self) -> Result<Document, Unspecified> {
+        let mut cbb = LcCBB::new(PKCS8_CAPACITY_BUFFER);
 
-    /// ⚠️ Function assumes that `aws_lc::RSA_check_key` / `aws_lc::RSA_validate_key` has already been invoked beforehand.
-    /// `aws_lc::RSA_validate_key` is already invoked by `aws_lc::EVP_parse_private_key` / `aws_lc::RSA_parse_private_key`.
-    /// If the `EVP_PKEY` was constructed through another mechanism, then the key should be validated through the use of
-    /// one those verifier functions first.
-    unsafe fn validate_rsa_pkey(rsa: &LcPtr<EVP_PKEY>) -> Result<(), KeyRejected> {
-        let rsa = rsa.get_rsa()?.as_const();
-
-        let p = ConstPointer::new(RSA_get0_p(*rsa))?;
-        let q = ConstPointer::new(RSA_get0_q(*rsa))?;
-        let p_bits = p.num_bits();
-        let q_bits = q.num_bits();
-
-        if p_bits != q_bits {
-            return Err(KeyRejected::inconsistent_components());
+        if 1 != unsafe { EVP_marshal_private_key(cbb.as_mut_ptr(), *self.evp_pkey.as_const()) } {
+            return Err(Unspecified);
         }
 
-        if p_bits < Self::MIN_RSA_PRIME_BITS {
-            return Err(KeyRejected::too_small());
-        }
-        if p_bits > Self::MAX_RSA_PRIME_BITS {
-            return Err(KeyRejected::too_large());
-        }
+        let mut pkcs8_bytes_ptr = null_mut::<u8>();
+        let mut out_len: usize = 0;
 
-        if p_bits % 512 != 0 {
-            return Err(KeyRejected::private_modulus_len_not_multiple_of_512_bits());
+        if 1 != unsafe { CBB_finish(cbb.as_mut_ptr(), &mut pkcs8_bytes_ptr, &mut out_len) } {
+            return Err(Unspecified);
         }
 
-        let e = ConstPointer::new(RSA_get0_e(*rsa))?;
-        let min_exponent = DetachableLcPtr::try_from(65537)?;
-        match e.compare(&min_exponent.as_const()) {
-            Ordering::Less => Err(KeyRejected::too_small()),
-            Ordering::Equal | Ordering::Greater => Ok(()),
-        }?;
+        let pkcs8_bytes_ptr = LcPtr::new(pkcs8_bytes_ptr)?;
 
-        // For the FIPS feature this will perform the necessary public-key validaiton steps and pairwise consistency tests.
-        // TODO: This also result in another call to `aws_lc::RSA_validate_key`, meaning duplicate effort is performed
-        // even after having already performing this operation during key parsing. Ideally the FIPS specific checks
-        // could be pulled out and invoked seperatly from the standard checks.
-        #[cfg(feature = "fips")]
-        if 1 != RSA_check_fips(*rsa as *mut RSA) {
-            return Err(KeyRejected::inconsistent_components());
-        }
+        let bytes = Vec::from(unsafe { pkcs8_bytes_ptr.as_slice(out_len) }).into_boxed_slice();
 
-        Ok(())
+        Ok(Document::new(bytes))
     }
 
     /// Sign `msg`. `msg` is digested using the digest algorithm from
@@ -498,4 +537,85 @@ unsafe fn serialize_RSA_pubkey(pubkey: &ConstPointer<RSA>) -> Result<Box<[u8]>, 
     let pubkey_slice = pubkey_bytes.as_slice(outlen);
     let pubkey_vec = Vec::from(pubkey_slice);
     Ok(pubkey_vec.into_boxed_slice())
+}
+
+pub(super) fn generate_rsa_evp_pkey(size: KeySize) -> Result<LcPtr<EVP_PKEY>, Unspecified> {
+    let evp_pkey_ctx = LcPtr::new(unsafe { EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, null_mut()) })?;
+
+    if 1 != unsafe { EVP_PKEY_keygen_init(*evp_pkey_ctx) } {
+        return Err(Unspecified);
+    };
+
+    if 1 != unsafe { EVP_PKEY_CTX_set_rsa_keygen_bits(*evp_pkey_ctx, size.bit_len()) } {
+        return Err(Unspecified);
+    };
+
+    let mut pkey: *mut EVP_PKEY = null_mut();
+
+    if 1 != indicator_check!(unsafe { EVP_PKEY_keygen(*evp_pkey_ctx, &mut pkey) }) {
+        return Err(Unspecified);
+    };
+
+    Ok(LcPtr::new(pkey)?)
+}
+
+/// ⚠️ Function assumes that `aws_lc::RSA_check_key` / `aws_lc::RSA_validate_key` has already been invoked beforehand.
+/// `aws_lc::RSA_validate_key` is already invoked by `aws_lc::EVP_parse_private_key` / `aws_lc::RSA_parse_private_key`.
+/// If the `EVP_PKEY` was constructed through another mechanism, then the key should be validated through the use of
+/// one those verifier functions first.
+pub(super) unsafe fn validate_rsa_pkey(rsa: &LcPtr<EVP_PKEY>) -> Result<(), KeyRejected> {
+    const MIN_RSA_PRIME_BITS: u32 = 1024;
+    const MAX_RSA_PRIME_BITS: u32 = 4096;
+
+    let rsa = rsa.get_rsa()?.as_const();
+
+    let p = ConstPointer::new(RSA_get0_p(*rsa))?;
+    let q = ConstPointer::new(RSA_get0_q(*rsa))?;
+    let p_bits = p.num_bits();
+    let q_bits = q.num_bits();
+
+    if p_bits != q_bits {
+        return Err(KeyRejected::inconsistent_components());
+    }
+
+    if p_bits < MIN_RSA_PRIME_BITS {
+        return Err(KeyRejected::too_small());
+    }
+    if p_bits > MAX_RSA_PRIME_BITS {
+        return Err(KeyRejected::too_large());
+    }
+
+    if p_bits % 512 != 0 {
+        return Err(KeyRejected::private_modulus_len_not_multiple_of_512_bits());
+    }
+
+    let e = ConstPointer::new(RSA_get0_e(*rsa))?;
+    let min_exponent = DetachableLcPtr::try_from(65537)?;
+    match e.compare(&min_exponent.as_const()) {
+        Ordering::Less => Err(KeyRejected::too_small()),
+        Ordering::Equal | Ordering::Greater => Ok(()),
+    }?;
+
+    // For the FIPS feature this will perform the necessary public-key validaiton steps and pairwise consistency tests.
+    // TODO: This also result in another call to `aws_lc::RSA_validate_key`, meaning duplicate effort is performed
+    // even after having already performing this operation during key parsing. Ideally the FIPS specific checks
+    // could be pulled out and invoked seperatly from the standard checks.
+    #[cfg(feature = "fips")]
+    if 1 != RSA_check_fips(*rsa as *mut RSA) {
+        return Err(KeyRejected::inconsistent_components());
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::KeyPair;
+
+    #[test]
+    fn generate_key() {
+        let keypair = KeyPair::generate(super::KeySize::Rsa2048).expect("generate successful");
+        let document = keypair.to_pkcs8v1().expect("serialize keypair");
+        let _ = KeyPair::from_pkcs8(document.as_ref()).expect("deserialize key");
+    }
 }
