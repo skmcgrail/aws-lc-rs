@@ -5,7 +5,7 @@ use core::{fmt::Debug, ptr::null_mut};
 use std::ops::Deref;
 
 use aws_lc::{
-    CBB_finish, EVP_PKEY_CTX_new, EVP_PKEY_CTX_set_rsa_mgf1_md, EVP_PKEY_CTX_set_rsa_oaep_md,
+    EVP_PKEY_CTX_new, EVP_PKEY_CTX_set_rsa_mgf1_md, EVP_PKEY_CTX_set_rsa_oaep_md,
     EVP_PKEY_CTX_set_rsa_padding, EVP_PKEY_decrypt, EVP_PKEY_decrypt_init, EVP_PKEY_encrypt,
     EVP_PKEY_encrypt_init, EVP_PKEY_up_ref, EVP_marshal_private_key, EVP_marshal_public_key,
     EVP_parse_public_key, EVP_sha1, EVP_sha256, EVP_sha384, EVP_sha512, EVP_MD, EVP_PKEY,
@@ -14,7 +14,7 @@ use aws_lc::{
 
 use crate::{
     buffer::Buffer,
-    cbb::{self, LcCBB},
+    cbb::LcCBB,
     cbs,
     encoding::AsDer,
     error::{KeyRejected, Unspecified},
@@ -206,24 +206,15 @@ impl PrivateDecryptingKey {
 
 impl AsDer<Pkcs8V1Der> for PrivateDecryptingKey {
     fn as_der(&self) -> Result<Pkcs8V1Der, Unspecified> {
-        let mut cbb = LcCBB::new(PKCS8_CAPACITY_BUFFER);
+        let mut buffer = Box::new([0u8; PKCS8_CAPACITY_BUFFER]);
+        let mut cbb = LcCBB::new_fixed(&mut buffer);
 
         if 1 != unsafe { EVP_marshal_private_key(cbb.as_mut_ptr(), *self.key.as_const()) } {
             return Err(Unspecified);
         }
+        cbb.finish()?;
 
-        let mut pkcs8_bytes_ptr = null_mut::<u8>();
-        let mut out_len = 0;
-
-        if 1 != unsafe { CBB_finish(cbb.as_mut_ptr(), &mut pkcs8_bytes_ptr, &mut out_len) } {
-            return Err(Unspecified);
-        }
-
-        let pkcs8_bytes_ptr = LcPtr::new(pkcs8_bytes_ptr)?;
-
-        let bytes = Vec::from(unsafe { pkcs8_bytes_ptr.as_slice(out_len) }).into_boxed_slice();
-
-        Ok(Pkcs8V1Der(Document::new(bytes)))
+        Ok(Pkcs8V1Der(Document::new(buffer)))
     }
 }
 
@@ -324,25 +315,14 @@ impl AsDer<PublicKeyX509Der> for PublicEncryptingKey {
     /// * `Unspeicifed` for any error that occurs serializing to bytes.
     fn as_der(&self) -> Result<PublicKeyX509Der, Unspecified> {
         // TODO: Determine proper initial_capacity
-        let mut der = cbb::LcCBB::new(1024);
+
+        let mut der = LcCBB::new(1024);
 
         if 1 != unsafe { EVP_marshal_public_key(der.as_mut_ptr(), *self.key) } {
             return Err(Unspecified);
         };
 
-        let mut out_data = null_mut::<u8>();
-        let mut out_len: usize = 0;
-
-        if 1 != unsafe { CBB_finish(der.as_mut_ptr(), &mut out_data, &mut out_len) } {
-            return Err(Unspecified);
-        };
-
-        let out_data = LcPtr::new(out_data)?;
-
-        // TODO: Need a type to just hold the owned pointer from CBB rather then copying
-        Ok(Buffer::take_from_slice(unsafe {
-            out_data.as_slice_mut(out_len)
-        }))
+        der.into_buffer()
     }
 }
 
