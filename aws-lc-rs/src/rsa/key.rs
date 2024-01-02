@@ -11,11 +11,11 @@ use core::{
 #[cfg(feature = "fips")]
 use aws_lc::RSA_check_fips;
 use aws_lc::{
-    CBB_finish, EVP_DigestSignInit, EVP_PKEY_CTX_new_id, EVP_PKEY_CTX_set_rsa_keygen_bits,
-    EVP_PKEY_assign_RSA, EVP_PKEY_keygen, EVP_PKEY_keygen_init, EVP_PKEY_new, EVP_PKEY_size,
-    EVP_marshal_private_key, RSA_get0_e, RSA_get0_n, RSA_get0_p, RSA_get0_q, RSA_new,
-    RSA_parse_private_key, RSA_parse_public_key, RSA_public_key_to_bytes, RSA_set0_key, RSA_size,
-    EVP_PKEY, EVP_PKEY_CTX, EVP_PKEY_RSA, RSA,
+    EVP_DigestSignInit, EVP_PKEY_CTX_new_id, EVP_PKEY_CTX_set_rsa_keygen_bits, EVP_PKEY_assign_RSA,
+    EVP_PKEY_keygen, EVP_PKEY_keygen_init, EVP_PKEY_new, EVP_PKEY_size, EVP_marshal_private_key,
+    RSA_get0_e, RSA_get0_n, RSA_get0_p, RSA_get0_q, RSA_new, RSA_parse_private_key,
+    RSA_parse_public_key, RSA_public_key_to_bytes, RSA_set0_key, RSA_size, EVP_PKEY, EVP_PKEY_CTX,
+    EVP_PKEY_RSA, RSA,
 };
 
 use mirai_annotations::verify_unreachable;
@@ -203,24 +203,15 @@ impl KeyPair {
     /// # Errors
     /// * `Unspecified`: any error encountered while serializing the key.
     pub fn to_pkcs8v1(&self) -> Result<Document, Unspecified> {
-        let mut cbb = LcCBB::new(PKCS8_CAPACITY_BUFFER);
+        let mut buffer = Box::new([0u8; PKCS8_CAPACITY_BUFFER]);
+        let mut cbb = LcCBB::new_fixed(&mut buffer);
 
         if 1 != unsafe { EVP_marshal_private_key(cbb.as_mut_ptr(), *self.evp_pkey.as_const()) } {
             return Err(Unspecified);
         }
+        cbb.finish()?;
 
-        let mut pkcs8_bytes_ptr = null_mut::<u8>();
-        let mut out_len: usize = 0;
-
-        if 1 != unsafe { CBB_finish(cbb.as_mut_ptr(), &mut pkcs8_bytes_ptr, &mut out_len) } {
-            return Err(Unspecified);
-        }
-
-        let pkcs8_bytes_ptr = LcPtr::new(pkcs8_bytes_ptr)?;
-
-        let bytes = Vec::from(unsafe { pkcs8_bytes_ptr.as_slice(out_len) }).into_boxed_slice();
-
-        Ok(Document::new(bytes))
+        Ok(Document::new(buffer))
     }
 
     /// Sign `msg`. `msg` is digested using the digest algorithm from

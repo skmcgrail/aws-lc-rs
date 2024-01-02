@@ -8,12 +8,10 @@ use crate::error::{KeyRejected, Unspecified};
 use crate::pkcs8::{Document, Version};
 use crate::ptr::LcPtr;
 use aws_lc::{
-    CBB_finish, EVP_PKEY_bits, EVP_PKEY_get1_EC_KEY, EVP_PKEY_get1_RSA, EVP_PKEY_id,
-    EVP_marshal_private_key, EVP_marshal_private_key_v2, EVP_parse_private_key, EC_KEY, EVP_PKEY,
-    RSA,
+    EVP_PKEY_bits, EVP_PKEY_get1_EC_KEY, EVP_PKEY_get1_RSA, EVP_PKEY_id, EVP_marshal_private_key,
+    EVP_marshal_private_key_v2, EVP_parse_private_key, EC_KEY, EVP_PKEY, RSA,
 };
 use std::os::raw::c_int;
-use std::ptr::null_mut;
 
 impl TryFrom<&[u8]> for LcPtr<EVP_PKEY> {
     type Error = KeyRejected;
@@ -85,7 +83,8 @@ impl LcPtr<EVP_PKEY> {
     }
 
     pub(crate) fn marshall_private_key(&self, version: Version) -> Result<Document, Unspecified> {
-        let mut cbb = LcCBB::new(PKCS8_DOCUMENT_MAX_LEN);
+        let mut buffer = Box::new([0u8; PKCS8_DOCUMENT_MAX_LEN]);
+        let mut cbb = LcCBB::new_fixed(&mut buffer);
 
         match version {
             Version::V1 => {
@@ -99,16 +98,8 @@ impl LcPtr<EVP_PKEY> {
                 }
             }
         }
+        cbb.finish()?;
 
-        let mut pkcs8_bytes_ptr = null_mut::<u8>();
-        let mut out_len: usize = 0;
-        if 1 != unsafe { CBB_finish(cbb.as_mut_ptr(), &mut pkcs8_bytes_ptr, &mut out_len) } {
-            return Err(Unspecified);
-        }
-
-        let pkcs8_bytes_ptr = LcPtr::new(pkcs8_bytes_ptr)?;
-        let bytes = Vec::from(unsafe { pkcs8_bytes_ptr.as_slice(out_len) }).into_boxed_slice();
-
-        Ok(Document::new(bytes))
+        Ok(Document::new(buffer))
     }
 }
