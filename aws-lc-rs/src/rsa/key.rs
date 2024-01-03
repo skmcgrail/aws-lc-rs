@@ -46,7 +46,7 @@ use crate::{
     sealed::Sealed,
 };
 
-// Based on a meassurement of a PKCS#8 document containing an RSA-8192 key with an additional 1% capacity buffer
+// Based on a meassurement of a PKCS#8 v1 document containing an RSA-8192 key with an additional 1% capacity buffer
 // rounded to an even 64-bit words (4678 + 1% + padding ≈ 4728).
 pub(super) const PKCS8_FIXED_CAPACITY_BUFFER: usize = 4728;
 
@@ -210,15 +210,22 @@ impl KeyPair {
     /// # Errors
     /// * `Unspecified`: any error encountered while serializing the key.
     pub fn to_pkcs8v1(&self) -> Result<Document, Unspecified> {
-        let mut buffer = Box::new([0u8; PKCS8_FIXED_CAPACITY_BUFFER]);
-        let mut cbb = LcCBB::new_fixed(&mut buffer);
+        let mut buffer = vec![0u8; PKCS8_FIXED_CAPACITY_BUFFER];
+        let out_len = {
+            let mut cbb = LcCBB::new_fixed(<&mut [u8; PKCS8_FIXED_CAPACITY_BUFFER]>::try_from(
+                buffer.as_mut_slice(),
+            )?);
 
-        if 1 != unsafe { EVP_marshal_private_key(cbb.as_mut_ptr(), *self.evp_pkey.as_const()) } {
-            return Err(Unspecified);
-        }
-        cbb.finish()?;
+            if 1 != unsafe { EVP_marshal_private_key(cbb.as_mut_ptr(), *self.evp_pkey.as_const()) }
+            {
+                return Err(Unspecified);
+            }
+            cbb.finish()?
+        };
 
-        Ok(Document::new(buffer))
+        buffer.truncate(out_len);
+
+        Ok(Document::new(buffer.into_boxed_slice()))
     }
 
     /// Sign `msg`. `msg` is digested using the digest algorithm from

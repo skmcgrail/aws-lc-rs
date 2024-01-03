@@ -83,23 +83,30 @@ impl LcPtr<EVP_PKEY> {
     }
 
     pub(crate) fn marshall_private_key(&self, version: Version) -> Result<Document, Unspecified> {
-        let mut buffer = Box::new([0u8; PKCS8_DOCUMENT_MAX_LEN]);
-        let mut cbb = LcCBB::new_fixed(&mut buffer);
+        let mut buffer = vec![0u8; PKCS8_DOCUMENT_MAX_LEN];
 
-        match version {
-            Version::V1 => {
-                if 1 != unsafe { EVP_marshal_private_key(cbb.as_mut_ptr(), **self) } {
-                    return Err(Unspecified);
+        let out_len = {
+            let mut cbb = LcCBB::new_fixed(<&mut [u8; PKCS8_DOCUMENT_MAX_LEN]>::try_from(
+                buffer.as_mut_slice(),
+            )?);
+
+            match version {
+                Version::V1 => {
+                    if 1 != unsafe { EVP_marshal_private_key(cbb.as_mut_ptr(), **self) } {
+                        return Err(Unspecified);
+                    }
+                }
+                Version::V2 => {
+                    if 1 != unsafe { EVP_marshal_private_key_v2(cbb.as_mut_ptr(), **self) } {
+                        return Err(Unspecified);
+                    }
                 }
             }
-            Version::V2 => {
-                if 1 != unsafe { EVP_marshal_private_key_v2(cbb.as_mut_ptr(), **self) } {
-                    return Err(Unspecified);
-                }
-            }
-        }
-        cbb.finish()?;
+            cbb.finish()?
+        };
 
-        Ok(Document::new(buffer))
+        buffer.truncate(out_len);
+
+        Ok(Document::new(buffer.into_boxed_slice()))
     }
 }

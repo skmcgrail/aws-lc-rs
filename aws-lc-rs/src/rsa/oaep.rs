@@ -196,15 +196,22 @@ impl PrivateDecryptingKey {
 
 impl AsDer<Pkcs8V1Der<'static>> for PrivateDecryptingKey {
     fn as_der(&self) -> Result<Pkcs8V1Der<'static>, Unspecified> {
-        let mut buffer = [0u8; PKCS8_FIXED_CAPACITY_BUFFER];
-        let mut cbb = LcCBB::new_fixed(&mut buffer);
+        let mut buffer = vec![0u8; PKCS8_FIXED_CAPACITY_BUFFER];
 
-        if 1 != unsafe { EVP_marshal_private_key(cbb.as_mut_ptr(), *self.key.as_const()) } {
-            return Err(Unspecified);
-        }
-        let out_len = cbb.finish()?;
+        let out_len = {
+            let mut cbb = LcCBB::new_fixed(<&mut [u8; PKCS8_FIXED_CAPACITY_BUFFER]>::try_from(
+                buffer.as_mut_slice(),
+            )?);
 
-        Ok(Buffer::take_from_slice(&mut buffer[..out_len]))
+            if 1 != unsafe { EVP_marshal_private_key(cbb.as_mut_ptr(), *self.key.as_const()) } {
+                return Err(Unspecified);
+            }
+            cbb.finish()?
+        };
+
+        buffer.truncate(out_len);
+
+        Ok(Buffer::new(buffer))
     }
 }
 
