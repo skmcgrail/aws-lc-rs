@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0 OR ISC
 
 use core::{fmt::Debug, ptr::null_mut};
-use std::ops::Deref;
 
 use aws_lc::{
     EVP_PKEY_CTX_new, EVP_PKEY_CTX_set_rsa_mgf1_md, EVP_PKEY_CTX_set_rsa_oaep_md,
@@ -16,41 +15,40 @@ use crate::{
     buffer::Buffer,
     cbb::LcCBB,
     cbs,
-    encoding::AsDer,
+    encoding::{AsDer, Pkcs8V1Der, RsaPublicKeyX509Der},
     error::{KeyRejected, Unspecified},
     fips::indicator_check,
-    pkcs8::Document,
     ptr::LcPtr,
 };
 
-use super::key::{generate_rsa_evp_pkey, KeySize, PKCS8_CAPACITY_BUFFER};
+use super::key::{generate_rsa_evp_pkey, is_rsa_evp_pkey, KeySize, PKCS8_FIXED_CAPACITY_BUFFER};
 
 /// RSA-OAEP with SHA1 Hash and SHA1 MGF1
 pub const OAEP_SHA1_MGF1SHA1: EncryptionAlgorithm = EncryptionAlgorithm {
     id: EncryptionAlgorithmId::OaepSha1Mgf1sha1,
-    hash: EVP_sha1,
-    mgf: EVP_sha1,
+    oaep_hash_fn: EVP_sha1,
+    mgf1_hash_fn: EVP_sha1,
 };
 
 /// RSA-OAEP with SHA256 Hash and SHA256 MGF1
 pub const OAEP_SHA256_MGF1SHA256: EncryptionAlgorithm = EncryptionAlgorithm {
     id: EncryptionAlgorithmId::OaepSha256Mgf1sha256,
-    hash: EVP_sha256,
-    mgf: EVP_sha256,
+    oaep_hash_fn: EVP_sha256,
+    mgf1_hash_fn: EVP_sha256,
 };
 
 /// RSA-OAEP with SHA384 Hash and SHA384  MGF1
 pub const OAEP_SHA384_MGF1SHA384: EncryptionAlgorithm = EncryptionAlgorithm {
     id: EncryptionAlgorithmId::OaepSha384Mgf1sha384,
-    hash: EVP_sha384,
-    mgf: EVP_sha384,
+    oaep_hash_fn: EVP_sha384,
+    mgf1_hash_fn: EVP_sha384,
 };
 
 /// RSA-OAEP with SHA512 Hash and SHA512 MGF1
 pub const OAEP_SHA512_MGF1SHA512: EncryptionAlgorithm = EncryptionAlgorithm {
     id: EncryptionAlgorithmId::OaepSha512Mgf1sha512,
-    hash: EVP_sha512,
-    mgf: EVP_sha512,
+    oaep_hash_fn: EVP_sha512,
+    mgf1_hash_fn: EVP_sha512,
 };
 
 /// RSA Encryption Algorithm Identifier
@@ -70,14 +68,14 @@ pub enum EncryptionAlgorithmId {
     OaepSha512Mgf1sha512,
 }
 
-type HashFn = unsafe extern "C" fn() -> *const EVP_MD;
-type MgfFn = unsafe extern "C" fn() -> *const EVP_MD;
+type OaepHashFn = unsafe extern "C" fn() -> *const EVP_MD;
+type Mgf1HashFn = unsafe extern "C" fn() -> *const EVP_MD;
 
 /// An RSA Encryption Algorithm.
 pub struct EncryptionAlgorithm {
     id: EncryptionAlgorithmId,
-    hash: HashFn,
-    mgf: MgfFn,
+    oaep_hash_fn: OaepHashFn,
+    mgf1_hash_fn: Mgf1HashFn,
 }
 
 impl EncryptionAlgorithm {
@@ -88,34 +86,19 @@ impl EncryptionAlgorithm {
     }
 
     #[inline]
-    fn hash(&self) -> HashFn {
-        self.hash
+    fn oaep_hash_fn(&self) -> OaepHashFn {
+        self.oaep_hash_fn
     }
 
     #[inline]
-    fn mgf(&self) -> MgfFn {
-        self.mgf
+    fn mgf1_hash_fn(&self) -> Mgf1HashFn {
+        self.mgf1_hash_fn
     }
 }
 
 impl Debug for EncryptionAlgorithm {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> std::fmt::Result {
         Debug::fmt(&self.id, f)
-    }
-}
-
-/// A PKCS#8 V1 (RFC 5208) document encoded using DER.
-pub struct Pkcs8V1Der(Document);
-
-// We already had a `Document` type that is running double-duty for v1 and v2 documents
-// in the ec module. Rather then use a `Buffer<...>` alias type with `AsDer` opt for using
-// the existing Document type with `Deref` so we can still benefit from supporting different
-// document serialization versions in the future with `AsDer`.
-impl Deref for Pkcs8V1Der {
-    type Target = Document;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
     }
 }
 
@@ -127,6 +110,9 @@ pub struct PrivateDecryptingKey {
 
 impl PrivateDecryptingKey {
     fn new(key: LcPtr<EVP_PKEY>) -> Result<Self, Unspecified> {
+        if !is_rsa_evp_pkey(&key) {
+            return Err(Unspecified);
+        };
         let size = KeySize::from_evp_pkey(&key)?;
         Ok(Self { key, size })
     }
@@ -184,7 +170,11 @@ impl PrivateDecryptingKey {
             return Err(Unspecified);
         }
 
-        configure_oaep_crypto_operation(&pkey_ctx, algorithm.hash(), algorithm.mgf())?;
+        configure_oaep_crypto_operation(
+            &pkey_ctx,
+            algorithm.oaep_hash_fn(),
+            algorithm.mgf1_hash_fn(),
+        )?;
 
         let mut out_len = output.len();
 
@@ -204,25 +194,19 @@ impl PrivateDecryptingKey {
     }
 }
 
-impl AsDer<Pkcs8V1Der> for PrivateDecryptingKey {
-    fn as_der(&self) -> Result<Pkcs8V1Der, Unspecified> {
-        let mut buffer = Box::new([0u8; PKCS8_CAPACITY_BUFFER]);
+impl AsDer<Pkcs8V1Der<'static>> for PrivateDecryptingKey {
+    fn as_der(&self) -> Result<Pkcs8V1Der<'static>, Unspecified> {
+        let mut buffer = [0u8; PKCS8_FIXED_CAPACITY_BUFFER];
         let mut cbb = LcCBB::new_fixed(&mut buffer);
 
         if 1 != unsafe { EVP_marshal_private_key(cbb.as_mut_ptr(), *self.key.as_const()) } {
             return Err(Unspecified);
         }
-        cbb.finish()?;
+        let out_len = cbb.finish()?;
 
-        Ok(Pkcs8V1Der(Document::new(buffer)))
+        Ok(Buffer::take_from_slice(&mut buffer[..out_len]))
     }
 }
-
-pub struct PublicKeyX509DerType {
-    _priv: (),
-}
-
-pub type PublicKeyX509Der = Buffer<'static, PublicKeyX509DerType>;
 
 /// An RSA Public Key used for decrypting ciphertext encrypted by [`PublicEncryptingKey`].
 pub struct PublicEncryptingKey {
@@ -232,6 +216,9 @@ pub struct PublicEncryptingKey {
 
 impl PublicEncryptingKey {
     fn new(key: LcPtr<EVP_PKEY>) -> Result<Self, Unspecified> {
+        if !is_rsa_evp_pkey(&key) {
+            return Err(Unspecified);
+        };
         let size = KeySize::from_evp_pkey(&key)?;
         Ok(Self { key, size })
     }
@@ -268,7 +255,11 @@ impl PublicEncryptingKey {
             return Err(Unspecified);
         }
 
-        configure_oaep_crypto_operation(&pkey_ctx, algorithm.hash(), algorithm.mgf())?;
+        configure_oaep_crypto_operation(
+            &pkey_ctx,
+            algorithm.oaep_hash_fn(),
+            algorithm.mgf1_hash_fn(),
+        )?;
 
         let mut out_len = output.len();
 
@@ -290,30 +281,30 @@ impl PublicEncryptingKey {
 
 fn configure_oaep_crypto_operation(
     evp_pkey_ctx: &LcPtr<EVP_PKEY_CTX>,
-    hash: HashFn,
-    mgf: MgfFn,
+    oaep_hash_fn: OaepHashFn,
+    mgf1_hash_fn: Mgf1HashFn,
 ) -> Result<(), Unspecified> {
     if 1 != unsafe { EVP_PKEY_CTX_set_rsa_padding(**evp_pkey_ctx, RSA_PKCS1_OAEP_PADDING) } {
         return Err(Unspecified);
     };
 
-    if 1 != unsafe { EVP_PKEY_CTX_set_rsa_oaep_md(**evp_pkey_ctx, hash()) } {
+    if 1 != unsafe { EVP_PKEY_CTX_set_rsa_oaep_md(**evp_pkey_ctx, oaep_hash_fn()) } {
         return Err(Unspecified);
     };
 
-    if 1 != unsafe { EVP_PKEY_CTX_set_rsa_mgf1_md(**evp_pkey_ctx, mgf()) } {
+    if 1 != unsafe { EVP_PKEY_CTX_set_rsa_mgf1_md(**evp_pkey_ctx, mgf1_hash_fn()) } {
         return Err(Unspecified);
     };
 
     Ok(())
 }
 
-impl AsDer<PublicKeyX509Der> for PublicEncryptingKey {
+impl AsDer<RsaPublicKeyX509Der<'static>> for PublicEncryptingKey {
     /// Serialize this `PublicEncryptingKey` to a X.509 `SubjectPublicKeyInfo` structure as DER encoded bytes.
     ///
     /// # Errors
     /// * `Unspeicifed` for any error that occurs serializing to bytes.
-    fn as_der(&self) -> Result<PublicKeyX509Der, Unspecified> {
+    fn as_der(&self) -> Result<RsaPublicKeyX509Der<'static>, Unspecified> {
         // TODO: Determine proper initial_capacity
 
         let mut der = LcCBB::new(1024);

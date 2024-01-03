@@ -212,6 +212,8 @@ mod sealed {
 }
 /// Serialization formats
 pub mod encoding {
+    use crate::buffer::Buffer;
+
     /// Trait for structs that can be serialized into a DER format.
     pub trait AsDer<T> {
         /// Serializes into a DER format.
@@ -229,6 +231,22 @@ pub mod encoding {
         /// Returns Unspecified if serialization fails.
         fn as_be_bytes(&self) -> Result<T, crate::error::Unspecified>;
     }
+
+    mod types {
+        pub struct Pkcs8V1DerType {
+            _priv: (),
+        }
+
+        pub struct RsaPublicKeyX509DerType {
+            _priv: (),
+        }
+    }
+
+    /// A PKCS#8 v1 (RFC 5208) DER encoded structure.
+    pub type Pkcs8V1Der<'a> = Buffer<'a, types::Pkcs8V1DerType>;
+
+    /// A RSA public key DER encoded as an X.509 `SubjectPublicKeyInfo` structure.
+    pub type RsaPublicKeyX509Der<'a> = Buffer<'a, types::RsaPublicKeyX509DerType>;
 }
 
 #[cfg(test)]
