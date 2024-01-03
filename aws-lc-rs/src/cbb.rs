@@ -48,14 +48,13 @@ impl<'a> LcCBB<'a> {
         Self(cbb, PhantomData)
     }
 
-    pub(crate) fn finish(mut self) -> Result<(), Unspecified> {
+    pub(crate) fn finish(mut self) -> Result<usize, Unspecified> {
         let mut pkcs8_bytes_ptr = null_mut::<u8>();
         let mut out_len: usize = 0;
-        if 1 == unsafe { CBB_finish(self.as_mut_ptr(), &mut pkcs8_bytes_ptr, &mut out_len) } {
-            Ok(())
-        } else {
-            Err(Unspecified)
+        if 1 != unsafe { CBB_finish(self.as_mut_ptr(), &mut pkcs8_bytes_ptr, &mut out_len) } {
+            return Err(Unspecified);
         }
+        Ok(out_len)
     }
 }
 impl LcCBB<'_> {
