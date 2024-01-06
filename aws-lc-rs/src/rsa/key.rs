@@ -46,7 +46,7 @@ use crate::{
     sealed::Sealed,
 };
 
-// Based on a meassurement of a PKCS#8 v1 document containing an RSA-8192 key with an additional 1% capacity buffer
+// Based on a measurement of a PKCS#8 v1 document containing an RSA-8192 key with an additional 1% capacity buffer
 // rounded to an even 64-bit words (4678 + 1% + padding ≈ 4728).
 pub(super) const PKCS8_FIXED_CAPACITY_BUFFER: usize = 4728;
 
@@ -599,7 +599,7 @@ pub(super) unsafe fn validate_rsa_pkey(rsa: &LcPtr<EVP_PKEY>) -> Result<(), KeyR
         Ordering::Equal | Ordering::Greater => Ok(()),
     }?;
 
-    // For the FIPS feature this will perform the necessary public-key validaiton steps and pairwise consistency tests.
+    // For the FIPS feature this will perform the necessary public-key validation steps and pairwise consistency tests.
     // TODO: This also result in another call to `aws_lc::RSA_validate_key`, meaning duplicate effort is performed
     // even after having already performing this operation during key parsing. Ideally the FIPS specific checks
     // could be pulled out and invoked seperatly from the standard checks.
