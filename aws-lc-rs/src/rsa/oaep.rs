@@ -120,15 +120,15 @@ impl PrivateDecryptingKey {
     /// Generate a new RSA private key for use with asymmetrical encryption.
     ///
     /// # Errors
-    /// * `Unspeicifed` for any error that occurs during the generation of the RSA keypair.
+    /// * `Unspecified` for any error that occurs during the generation of the RSA keypair.
     pub fn generate(size: KeySize) -> Result<Self, Unspecified> {
         Self::new(generate_rsa_evp_pkey(size)?)
     }
 
-    /// Construct a `PrivateDecryptingKey` from the pvoided PKCS#8 (v1) document.
+    /// Construct a `PrivateDecryptingKey` from the provided PKCS#8 (v1) document.
     ///
     /// # Errors
-    /// * `Unspeicifed` for any error that occurs during deserialization of this key from PKCS#8.
+    /// * `Unspecified` for any error that occurs during deserialization of this key from PKCS#8.
     pub fn from_pkcs8(pkcs8: &[u8]) -> Result<Self, KeyRejected> {
         unsafe {
             let evp_pkey = LcPtr::try_from(pkcs8)?;
@@ -146,7 +146,7 @@ impl PrivateDecryptingKey {
     /// Retrieves the `PublicEncryptingKey` corresponding with this `PrivateDecryptingKey`.
     ///
     /// # Errors
-    /// * `Unspeicifed` for any error that occurs computing the public key.
+    /// * `Unspecified` for any error that occurs computing the public key.
     pub fn public_key(&self) -> Result<PublicEncryptingKey, Unspecified> {
         if 1 != unsafe { EVP_PKEY_up_ref(*self.key) } {
             return Err(Unspecified);
@@ -157,7 +157,7 @@ impl PrivateDecryptingKey {
     /// Decrypts the contents in `ciphertext` and writes the corresponding plaintext to `output`.
     ///
     /// # Errors
-    /// * `Unspeicifed` for any error that occurs while decrypting `ciphertext`.
+    /// * `Unspecified` for any error that occurs while decrypting `ciphertext`.
     pub fn decrypt<'output>(
         &self,
         algorithm: &'static EncryptionAlgorithm,
@@ -233,7 +233,7 @@ impl PublicEncryptingKey {
     /// Construct a `PublicEncryptingKey` from X.509 `SubjectPublicKeyInfo` DER encoded bytes.
     ///
     /// # Errors
-    /// * `Unspeicifed` for any error that occurs deserializing from bytes.
+    /// * `Unspecified` for any error that occurs deserializing from bytes.
     pub fn from_der(value: &[u8]) -> Result<PublicEncryptingKey, Unspecified> {
         let mut der = unsafe { cbs::build_CBS(value) };
         let key = LcPtr::new(unsafe { EVP_parse_public_key(&mut der) })?;
@@ -249,7 +249,7 @@ impl PublicEncryptingKey {
     /// Encrypts the contents in `plaintext` and writes the corresponding ciphertext to `output`.
     ///
     /// # Errors
-    /// * `Unspeicifed` for any error that occurs while decrypting `ciphertext`.
+    /// * `Unspecified` for any error that occurs while decrypting `ciphertext`.
     pub fn encrypt<'output>(
         &self,
         algorithm: &'static EncryptionAlgorithm,
@@ -310,7 +310,7 @@ impl AsDer<RsaPublicKeyX509Der<'static>> for PublicEncryptingKey {
     /// Serialize this `PublicEncryptingKey` to a X.509 `SubjectPublicKeyInfo` structure as DER encoded bytes.
     ///
     /// # Errors
-    /// * `Unspeicifed` for any error that occurs serializing to bytes.
+    /// * `Unspecified` for any error that occurs serializing to bytes.
     fn as_der(&self) -> Result<RsaPublicKeyX509Der<'static>, Unspecified> {
         // TODO: Determine proper initial_capacity
 
