@@ -102,6 +102,7 @@ impl<P: Pointer> DetachablePointer<P> {
 }
 
 impl<P: Pointer> DetachablePointer<P> {
+    #[allow(dead_code)]
     #[inline]
     pub fn as_const(&self) -> ConstPointer<P::T> {
         match &self.pointer {

@@ -10,18 +10,20 @@
 // naming conventions. Also the standard camelCase names are used for `KeyPair`
 // components.
 
+mod encoding;
+mod encryption;
 pub(crate) mod key;
-mod oaep;
 pub(crate) mod signature;
 
 #[allow(clippy::module_name_repetitions)]
 pub use self::signature::RsaParameters;
 pub use self::{
-    key::{KeyPair, PublicKey, PublicKeyComponents},
-    oaep::{
-        EncryptionAlgorithm, EncryptionAlgorithmId, PrivateDecryptingKey, PublicEncryptingKey,
-        OAEP_SHA1_MGF1SHA1, OAEP_SHA256_MGF1SHA256, OAEP_SHA384_MGF1SHA384, OAEP_SHA512_MGF1SHA512,
+    encryption::{
+        EncryptionAlgorithm, EncryptionAlgorithmId, EncryptionKeySize, PrivateDecryptingKey,
+        PublicEncryptingKey, OAEP_SHA1_MGF1SHA1, OAEP_SHA256_MGF1SHA256, OAEP_SHA384_MGF1SHA384,
+        OAEP_SHA512_MGF1SHA512,
     },
+    key::{KeyPair, PublicKey, PublicKeyComponents},
 };
 
 pub(crate) use self::signature::RsaVerificationAlgorithmId;
