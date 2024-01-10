@@ -27,6 +27,8 @@ use crate::{
 #[cfg(feature = "ring-sig-verify")]
 use untrusted::Input;
 
+use super::key::{RsaEvpPkey, UsageContext};
+
 #[allow(non_camel_case_types)]
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug)]
@@ -81,17 +83,18 @@ impl VerificationAlgorithm for RsaParameters {
         msg: &[u8],
         signature: &[u8],
     ) -> Result<(), Unspecified> {
-        unsafe {
-            let rsa = super::key::build_public_RSA_PKEY(public_key)?;
-            verify_RSA(
-                self.digest_algorithm(),
-                self.padding(),
-                &rsa,
-                msg,
-                signature,
-                self.bit_size_range(),
-            )
-        }
+        let rsa = RsaEvpPkey::from_rfc8017_public_key_der(
+            public_key,
+            UsageContext::SignatureVerification,
+        )?;
+        verify_rsa_signature(
+            self.digest_algorithm(),
+            self.padding(),
+            &rsa.key,
+            msg,
+            signature,
+            self.bit_size_range(),
+        )
     }
 }
 
@@ -252,8 +255,7 @@ pub(crate) fn configure_rsa_pkcs1_pss_padding(pctx: *mut EVP_PKEY_CTX) -> Result
 }
 
 #[inline]
-#[allow(non_snake_case)]
-pub(crate) fn verify_RSA(
+pub(crate) fn verify_rsa_signature(
     algorithm: &'static digest::Algorithm,
     padding: &'static RsaPadding,
     public_key: &LcPtr<EVP_PKEY>,

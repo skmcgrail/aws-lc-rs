@@ -43,6 +43,7 @@ impl ConstPointer<BIGNUM> {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn compare(&self, other: &ConstPointer<BIGNUM>) -> Ordering {
         unsafe {
             let result = BN_cmp(**self, **other);

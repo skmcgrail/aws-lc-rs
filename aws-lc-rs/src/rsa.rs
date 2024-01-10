@@ -11,16 +11,18 @@
 // components.
 
 pub(crate) mod key;
-mod oaep;
+mod encryption;
 pub(crate) mod signature;
+mod encoding;
 
 #[allow(clippy::module_name_repetitions)]
 pub use self::signature::RsaParameters;
 pub use self::{
     key::{KeyPair, PublicKey, PublicKeyComponents},
-    oaep::{
+    encryption::{
         EncryptionAlgorithm, EncryptionAlgorithmId, PrivateDecryptingKey, PublicEncryptingKey,
         OAEP_SHA1_MGF1SHA1, OAEP_SHA256_MGF1SHA256, OAEP_SHA384_MGF1SHA384, OAEP_SHA512_MGF1SHA512,
+        EncryptionKeySize
     },
 };
 
