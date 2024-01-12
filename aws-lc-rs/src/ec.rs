@@ -369,9 +369,9 @@ pub(crate) unsafe fn evp_pkey_from_public_point(
         return Err(Unspecified);
     }
 
-    let pkey = LcPtr::new(unsafe { EVP_PKEY_new() })?;
+    let pkey = LcPtr::new(EVP_PKEY_new())?;
 
-    if 1 != unsafe { EVP_PKEY_assign_EC_KEY(*pkey, *ec_key) } {
+    if 1 != EVP_PKEY_assign_EC_KEY(*pkey, *ec_key) {
         return Err(Unspecified);
     }
 

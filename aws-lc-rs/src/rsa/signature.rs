@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0 OR ISC
 
-use core::{
+use std::{
     fmt::{self, Debug, Formatter},
     mem::MaybeUninit,
     ops::RangeInclusive,

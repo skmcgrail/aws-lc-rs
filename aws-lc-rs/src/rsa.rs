@@ -23,7 +23,7 @@ pub use self::{
         PublicEncryptingKey, OAEP_SHA1_MGF1SHA1, OAEP_SHA256_MGF1SHA256, OAEP_SHA384_MGF1SHA384,
         OAEP_SHA512_MGF1SHA512,
     },
-    key::{KeyPair, PublicKey, PublicKeyComponents},
+    key::{KeyPair, PublicKey, PublicKeyComponents, SignatureKeySize},
 };
 
 pub(crate) use self::signature::RsaVerificationAlgorithmId;

@@ -7,13 +7,15 @@ use crate::{
     fips::indicator_check,
     ptr::LcPtr,
 };
+#[cfg(feature = "fips")]
+use aws_lc::RSA_check_fips;
 use aws_lc::{
     EVP_PKEY_CTX_new, EVP_PKEY_CTX_set_rsa_mgf1_md, EVP_PKEY_CTX_set_rsa_oaep_md,
     EVP_PKEY_CTX_set_rsa_padding, EVP_PKEY_decrypt, EVP_PKEY_decrypt_init, EVP_PKEY_encrypt,
     EVP_PKEY_encrypt_init, EVP_PKEY_up_ref, EVP_sha1, EVP_sha256, EVP_sha384, EVP_sha512, EVP_MD,
     EVP_PKEY, EVP_PKEY_CTX, RSA_PKCS1_OAEP_PADDING,
 };
-use core::{fmt::Debug, ptr::null_mut};
+use std::{fmt::Debug, ptr::null_mut};
 
 use super::key::{generate_rsa_key, rsa_key_size_enum, RsaEvpPkey, UsageContext};
 
@@ -116,7 +118,7 @@ impl EncryptionAlgorithm {
 
 rsa_key_size_enum!(EncryptionKeySize);
 
-/// An RSA Private Key used for decrypting ciphertext encrypted by [`PublicEncryptingKey`].
+/// An RSA private key used for decrypting ciphertext encrypted by a [`PublicEncryptingKey`].
 pub struct PrivateDecryptingKey(RsaEvpPkey);
 
 impl PrivateDecryptingKey {
@@ -129,7 +131,22 @@ impl PrivateDecryptingKey {
     /// # Errors
     /// * `Unspecified` for any error that occurs during the generation of the RSA keypair.
     pub fn generate(size: EncryptionKeySize) -> Result<Self, Unspecified> {
-        let key = generate_rsa_key(size.bit_len())?;
+        let key = generate_rsa_key(size.bit_len(), false)?;
+        Self::new(key)
+    }
+
+    /// Generate a RSA `KeyPair` of the specified key-strength.
+    ///
+    /// Supports the following key sizes:
+    /// * `EncryptionKeySize::Rsa2048`
+    /// * `EncryptionKeySize::Rsa3072`
+    /// * `EncryptionKeySize::Rsa4096`
+    ///
+    /// # Errors
+    /// * `Unspecified`: Any key generation failure.
+    #[cfg(feature = "fips")]
+    pub fn generate_fips(size: EncryptionKeySize) -> Result<Self, Unspecified> {
+        let key = generate_rsa_key(size.bit_len(), true)?;
         Self::new(key)
     }
 
@@ -142,6 +159,19 @@ impl PrivateDecryptingKey {
     pub fn from_pkcs8(pkcs8: &[u8]) -> Result<Self, KeyRejected> {
         let evp_pkey = LcPtr::try_from(pkcs8)?;
         Self::new(evp_pkey).map_err(|_| KeyRejected::unexpected_error())
+    }
+
+    /// Returns a boolean indicator if this RSA key is an approved FIPS 140-3 key.
+    #[cfg(feature = "fips")]
+    #[must_use]
+    pub fn is_valid_fips_key(&self) -> bool {
+        let rsa_key = if let Ok(key) = self.0.key.get_rsa() {
+            key
+        } else {
+            return false;
+        };
+
+        1 == unsafe { RSA_check_fips(*rsa_key) }
     }
 
     /// Returns the RSA key size in bytes.
@@ -208,13 +238,19 @@ impl PrivateDecryptingKey {
     }
 }
 
+impl Debug for PrivateDecryptingKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("PrivateDecryptingKey").finish()
+    }
+}
+
 impl AsDer<Pkcs8V1Der<'static>> for PrivateDecryptingKey {
     fn as_der(&self) -> Result<Pkcs8V1Der<'static>, Unspecified> {
         AsDer::<Pkcs8V1Der<'_>>::as_der(&self.0)
     }
 }
 
-/// An RSA Public Key used for decrypting ciphertext encrypted by [`PublicEncryptingKey`].
+/// An RSA public key used for encrypting plaintext that is decrypted by a [`PrivateDecryptingKey`].
 pub struct PublicEncryptingKey(RsaEvpPkey);
 
 impl PublicEncryptingKey {
@@ -276,6 +312,12 @@ impl PublicEncryptingKey {
         };
 
         Ok(&mut output[..out_len])
+    }
+}
+
+impl Debug for PublicEncryptingKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("PublicEncryptingKey").finish()
     }
 }
 
@@ -353,8 +395,7 @@ mod tests {
         ($name:ident, $size:expr) => {
             #[test]
             fn $name() {
-                let private_key =
-                    PrivateDecryptingKey::generate($size).expect("generation");
+                let private_key = PrivateDecryptingKey::generate($size).expect("generation");
 
                 let pkcs8v1 = private_key.as_der().expect("encoded");
 
@@ -377,6 +418,58 @@ mod tests {
     generate_encode_decode!(rsa3072_generate_encode_decode, EncryptionKeySize::Rsa3072);
     generate_encode_decode!(rsa4096_generate_encode_decode, EncryptionKeySize::Rsa4096);
     generate_encode_decode!(rsa8192_generate_encode_decode, EncryptionKeySize::Rsa8192);
+
+    macro_rules! generate_fips_encode_decode {
+        ($name:ident, $size:expr) => {
+            #[cfg(feature = "fips")]
+            #[test]
+            fn $name() {
+                let private_key = PrivateDecryptingKey::generate_fips($size).expect("generation");
+
+                assert_eq!(true, private_key.is_valid_fips_key());
+
+                let pkcs8v1 = private_key.as_der().expect("encoded");
+
+                let private_key =
+                    PrivateDecryptingKey::from_pkcs8(pkcs8v1.as_ref()).expect("decoded");
+
+                let public_key = private_key.public_key().expect("public key");
+
+                drop(private_key);
+
+                let public_key_der = public_key.as_der().expect("encoded");
+
+                let _public_key =
+                    PublicEncryptingKey::from_der(public_key_der.as_ref()).expect("decoded");
+            }
+        };
+        ($name:ident, $size:expr, false) => {
+            #[cfg(feature = "fips")]
+            #[test]
+            fn $name() {
+                let _ = PrivateDecryptingKey::generate_fips($size)
+                    .expect_err("should fail for key size");
+            }
+        };
+    }
+
+    generate_fips_encode_decode!(
+        rsa2048_generate_fips_encode_decode,
+        EncryptionKeySize::Rsa2048
+    );
+    generate_fips_encode_decode!(
+        rsa3072_generate_fips_encode_decode,
+        EncryptionKeySize::Rsa3072
+    );
+    generate_fips_encode_decode!(
+        rsa4096_generate_fips_encode_decode,
+        EncryptionKeySize::Rsa4096
+    );
+    generate_fips_encode_decode!(
+        rsa8192_generate_fips_encode_decode,
+        EncryptionKeySize::Rsa8192,
+        false
+    );
 
     macro_rules! round_trip_algorithm {
         ($name:ident, $alg:expr, $keysize:expr) => {
